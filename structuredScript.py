@@ -27,19 +27,19 @@ class Spinner:
             "yellow": "\033[33m",
             "blue": "\033[34m",
             "white": "\033[37m",
-            "reset": "\033[0m"  # Resets to default color
+            "reset": "\033[0m"
         }
-        self.current_color = color  # Track current color
+        self.current_color = color 
 
     def start(self):
         def run_spinner():
-            sys.stdout.write(self.message_text + " ")  # Initial message
+            sys.stdout.write(self.message_text + " ")
             while not self.stop_running.is_set():
-                with self.lock:  # Lock to prevent interference with message updates
+                with self.lock:
                     colored_symbol = self.color_code.get(self.current_color, self.color_code["white"]) + next(self.spinner) + self.color_code["reset"]
                     sys.stdout.write(colored_symbol)  
                     sys.stdout.flush()
-                    sys.stdout.write('\b')  # Move back one character
+                    sys.stdout.write('\b')
                 time.sleep(0.1)
 
         self.thread = threading.Thread(target=run_spinner)
@@ -48,50 +48,30 @@ class Spinner:
     def stop(self):
         self.stop_running.set()
         self.thread.join()
-        # sys.stdout.write('\n')  # Move to the next line
-        # sys.stdout.write("Done!\n")
 
     def message(self, new_message, color="white"):
         """Update the status message and color while the spinner is running."""
         with self.lock:
-            # Clear the current spinner character
             sys.stdout.write('\b \b')  
             sys.stdout.flush()
-            # Move to the start of the line and write the new message with the selected color
-            self.current_color = color  # Update the current color
+            self.current_color = color
             colored_message = self.color_code.get(color, self.color_code["white"]) + new_message + self.color_code["reset"]
             sys.stdout.write('\r' + colored_message + " ")
             sys.stdout.flush()
-            time.sleep(0.1)  # Brief pause to make the change visible
-            # Update the message_text so it continues with the new message
+            time.sleep(0.1)
             self.message_text = new_message
 
     def erase(self):
         """Erase the current message from the terminal."""
         with self.lock:
-            # Move to the start of the line
             sys.stdout.write('\r')
-            # Overwrite the message with spaces to clear it
-            sys.stdout.write(' ' * (len(self.message_text) + 2))  # +2 for the spinner and space after the message
-            sys.stdout.write('\r')  # Move back to the start of the line
+            sys.stdout.write(' ' * (len(self.message_text) + 2))
+            sys.stdout.write('\r')
             sys.stdout.flush()
-            # Reset message_text so that nothing appears
             self.message_text = ""
 
 def excel_loader(path):
-    """
-    Load and preprocess Excel data.
-
-    This function is specifically designed for loading and preprocessing data for the scope.
-
-    Args:
-        path (str): The path to the Excel file.
-
-    Returns:
-        pandas.DataFrame: The preprocessed data.
-    """
     data = pd.read_excel(path, usecols=lambda x: x != 'NAME', index_col=0).transpose()
-    data = data[filterEM]
     data.index = pd.to_datetime(data.index, format='%Y')
     data.index = data.index + pd.offsets.YearEnd()
     data.index.rename('DATE', inplace=True)
@@ -166,31 +146,6 @@ def create_filter_mask(sampleData):
     frequentZerosFilter = monthsWithZeroReturns[monthsWithZeroReturns >= 12].index # activated
 
     return decemberFilter.union(frequentZerosFilter).union(priceFilter).union(returnFilter)
-
-spinner = Spinner("Starting...")
-spinner.start()
-spinner.message("Loading data...", "blue")
-
-# Filepaths for input data
-root = os.path.dirname(__file__)  # Get the current script's directory
-
-staticPath = os.path.join(root, 'data', 'Static.xlsx')
-ritPath = os.path.join(root, 'data', 'DS_RI_T_USD_M.xlsx')
-rfPath = os.path.join(root, 'data', 'Risk_Free_Rate.xlsx')
-mvPath = os.path.join(root, 'data', 'DS_MV_USD_M.xlsx')
-
-# Create EM filter
-staticData = pd.read_excel(staticPath, engine='openpyxl')
-regionFilter = {}
-for region in ['AMER', 'EM', 'EUR', 'PAC']:
-    regionFilter[region] = staticData['ISIN'][staticData['Region'] == region]
-
-filterEM = staticData['ISIN'][staticData['Region'] == 'AMER'] # EUR | PAC | AMER | EM
-
-# Load Data
-masterData = pd.read_excel(ritPath, usecols=lambda x: x != 'NAME', index_col=0, engine='openpyxl').transpose()
-masterData.index.rename('DATE', inplace=True) # print(sum(masterData.isna().any())) # Prices have no missing values
-masterData = masterData[masterData.index.year > 2000]
 
 class Portfolio():
     valid_types = ('markowitz', 'erc', 'max_sharpe', 'min_var')
@@ -397,13 +352,27 @@ class Portfolio():
         self.actual_weights = pd.DataFrame(subperiodWeights[:-1], index=evaluationData.index, columns=self.ticker)
         return pd.Series(subperiodReturns, index=evaluationData.index)
 
+spinner = Spinner("Starting...")
+spinner.start()
+spinner.message("Loading data...", "blue")
+
+
+root = os.path.dirname(__file__)
+staticPath = os.path.join(root, 'data', 'Static.xlsx')
+ritPath = os.path.join(root, 'data', 'DS_RI_T_USD_M.xlsx')
+rfPath = os.path.join(root, 'data', 'Risk_Free_Rate.xlsx')
+
+staticData = pd.read_excel(staticPath, engine='openpyxl')
+masterData = pd.read_excel(ritPath, usecols=lambda x: x != 'NAME', index_col=0, engine='openpyxl').transpose()
+masterData.index.rename('DATE', inplace=True) # print(sum(masterData.isna().any())) # Prices have no missing values
+masterData = masterData[masterData.index.year > 2000]
+
 global masterIndex
-# Set master index
 masterIndex = masterData.index
 df_dict = {}
-for region, filter in regionFilter.items():
+for region in ['AMER', 'EM', 'EUR', 'PAC']:
+    filter = staticData['ISIN'][staticData['Region'] == region]
     df_dict[region] = masterData[filter].pct_change()
-# equity_returns = masterData.pct_change()
 equity_returns = pd.concat(df_dict.values(), keys=df_dict.keys(), axis=1)
 
 commodities = {
@@ -421,8 +390,8 @@ for df in [equity_returns, metal_returns]:
     df.fillna(0, inplace=True)
 
 portfolio_keys = ['equity_amer', 'equity_em', 'equity_pac', 'equity_eur', 'metals']
-portfolio_returns = pd.DataFrame(index=masterIndex, columns=[*portfolio_keys, 'ERC'])
-portfolio_returns[:] = 0
+portfolio_returns = pd.DataFrame(0, index=masterIndex, columns=[*portfolio_keys, 'ERC'])
+# portfolio_returns[:] = 0
 
 def iteration_depth(limit=None):
     if limit is None:
