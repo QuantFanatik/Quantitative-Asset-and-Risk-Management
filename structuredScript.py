@@ -390,8 +390,8 @@ for df in [equity_returns, metal_returns]:
     df.fillna(0, inplace=True)
 
 portfolio_keys = ['equity_amer', 'equity_em', 'equity_pac', 'equity_eur', 'metals']
-portfolio_returns = pd.DataFrame(0, index=masterIndex, columns=[*portfolio_keys, 'ERC'])
-# portfolio_returns[:] = 0
+portfolio_returns = pd.DataFrame(index=masterIndex, columns=[*portfolio_keys, 'ERC'])
+portfolio_returns[:] = 0
 
 def iteration_depth(limit=None):
     if limit is None:
