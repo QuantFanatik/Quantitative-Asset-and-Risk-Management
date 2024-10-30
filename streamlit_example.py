@@ -7,14 +7,12 @@ import time
 
 # Streamlit title
 st.title('Interactive Equity Wealth Visualization')
-
 st.cache_data.clear()
 
 progress_text = "Operation in progress. Please wait."
 my_bar = st.progress(0, text=progress_text)
 
-# Ensure the relative path is handled correctly
-root = os.path.dirname(__file__)  # Get the current script's directory
+root = os.path.dirname(__file__)
 bonusPath = os.path.join(root, 'data', 'bonus.hdf')
 
 # Load the HDF file with caching
@@ -105,7 +103,6 @@ def plot_2d_slices(pivot_table):
 
 
 # --- MAIN LOGIC ---
-
 # Update progress bar: loading the data
 my_bar.progress(20, text="Loading data...")
 aggregator = load_data()
@@ -129,9 +126,9 @@ my_bar.progress(100, text="Completed!")
 time.sleep(0.5)
 my_bar.empty()  # Remove the progress bar once complete
 
-# --- Reveal the figures after loading is done ---
-st.plotly_chart(fig_3d)  # Display the 3D surface plots
-st.plotly_chart(fig_2d)  # Display the 2D plot with the slider
+# Reveal the figures after loading is done
+st.plotly_chart(fig_3d)
+st.plotly_chart(fig_2d)
 
-# Terminal input to deploy the Streamlit app
-# streamlit run Project/hdf_frontend_example.py
+
+# Terminal input to deploy the Streamlit app: streamlit run streamlit_example.py
