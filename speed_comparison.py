@@ -74,7 +74,7 @@ def benchmark_crossover(gammas, max_dimension=100, step=1):
     return results
 
 def efficient_frontier_adaptive(gammas, expected_returns, sample_covariance):
-    if sample_covariance.shape[0] >= 27:
+    if sample_covariance.shape[0] >= 30:
         return efficient_frontier_cvxpy(gammas, expected_returns, sample_covariance)
     else:
         results = efficient_frontier_scipy(gammas, expected_returns, sample_covariance)

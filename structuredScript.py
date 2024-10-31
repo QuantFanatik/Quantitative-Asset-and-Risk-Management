@@ -351,7 +351,62 @@ class Portfolio():
         self.actual_returns = pd.Series(subperiodReturns, index=evaluationData.index)
         self.actual_weights = pd.DataFrame(subperiodWeights[:-1], index=evaluationData.index, columns=self.ticker)
         return pd.Series(subperiodReturns, index=evaluationData.index)
+    
+    def log_visuals(self):
+        gammas = np.linspace(-0.5, 1.5, 101)
+        efficient_frontier = self.__class__.efficient_frontier(gammas, self.expected_returns, self.expected_covariance)
+        return efficient_frontier
 
+    @staticmethod
+    def efficient_frontier(gammas, expected_returns, sample_covariance):
+        if sample_covariance.shape[0] >= 30:
+            return __class__._efficient_frontier_cvxpy(gammas, expected_returns, sample_covariance)
+        else:
+            results = __class__._efficient_frontier_scipy(gammas, expected_returns, sample_covariance)
+            return results
+        
+    @staticmethod
+    def _efficient_frontier_scipy(gammas, expected_returns, sample_covariance):
+        dimension = sample_covariance.shape[0]
+        initial_guess = np.ones(dimension) / dimension 
+        constraints = [LinearConstraint(np.ones(dimension), 1, 1)]
+        bounds = Bounds(0, 1)
+
+        results = []
+        for gamma in gammas:
+            def objective(weights):
+                return 0.5 * np.dot(weights.T, np.dot(sample_covariance, weights)) - gamma * np.dot(expected_returns, weights)
+            def jacobian(weights):
+                return np.dot(sample_covariance, weights) - gamma * expected_returns
+
+            result = minimize(objective,
+                            initial_guess,
+                            jac=jacobian,
+                            constraints=constraints,
+                            bounds=bounds,
+                            method='SLSQP')
+            
+            optimized_weights = result.x
+            results.append(optimized_weights)
+            initial_guess = optimized_weights  
+        return results
+
+    @staticmethod
+    def _efficient_frontier_cvxpy(gammas, expected_returns, sample_covariance):
+        dimension = sample_covariance.shape[0]
+        weights = cp.Variable(dimension)
+        gamma_param = cp.Parameter(nonneg=False)
+        markowitz = 0.5 * cp.quad_form(weights, sample_covariance) - gamma_param * expected_returns.T @ weights
+        constraints = [cp.sum(weights) == 1, weights >= 0]
+        problem = cp.Problem(cp.Minimize(markowitz), constraints)
+
+        results = []
+        for gamma_value in gammas:
+            gamma_param.value = gamma_value
+            problem.solve(warm_start=True)
+            results.append(weights.value)
+        return results
+        
 spinner = Spinner("Starting...")
 spinner.start()
 spinner.message("Loading data...", "blue")
@@ -393,19 +448,50 @@ portfolio_keys = ['equity_amer', 'equity_em', 'equity_pac', 'equity_eur', 'metal
 portfolio_returns = pd.DataFrame(index=masterIndex, columns=[*portfolio_keys, 'ERC'])
 portfolio_returns[:] = 0
 
-def iteration_depth(limit=None):
-    if limit is None:
-        YYYY = 2021
-    else:
-        YYYY = limit
-    indexIterator = {0: {'optimizationIndex': masterIndex.year < 2006, 'evaluationIndex': masterIndex.year == 2006}}
-    for year, index in zip(range(2007, YYYY + 1), range(1, 22 + 1)):
-        optimizationIndex = (masterIndex.year < year) & (masterIndex.year >= 2000 + index)
-        evaluationIndex = masterIndex.year == year
-        indexIterator[index] = {'optimizationIndex': optimizationIndex, 'evaluationIndex': evaluationIndex}
+def iteration_depth(limit=None, frequency="annual"):
+    if frequency == "annual":
+        if limit is None:
+            YYYY = 2021
+        else:
+            YYYY = limit
+        indexIterator = {0: {'optimizationIndex': masterIndex.year < 2006, 'evaluationIndex': masterIndex.year == 2006}}
+        for year, index in zip(range(2007, YYYY + 1), range(1, 22 + 1)):
+            optimizationIndex = (masterIndex.year < year) & (masterIndex.year >= 2000 + index)
+            evaluationIndex = masterIndex.year == year
+            indexIterator[index] = {'optimizationIndex': optimizationIndex, 'evaluationIndex': evaluationIndex}
+
+    elif frequency == "monthly":
+        if limit is None:
+            YYYY = 2021
+        else:
+            YYYY = limit
+        index = 0
+        indexIterator = {}
+        for year in range(2006, YYYY + 1):
+            for month in range(1, 13):
+                if year == YYYY and month > 1:
+                    break
+                # Calculate 5-year (60 months) rolling lookback period
+                start_year = year
+                start_month = month - 1
+                if start_month == 0:
+                    start_month = 12
+                    start_year -= 1
+                end_year = start_year - 5
+                end_month = start_month
+
+                optimizationIndex = (
+                    ((masterIndex.year > end_year) | 
+                    ((masterIndex.year == end_year) & (masterIndex.month >= end_month))) &
+                    ((masterIndex.year < year) |
+                    ((masterIndex.year == year) & (masterIndex.month < month)))
+                )
+                evaluationIndex = (masterIndex.year == year) & (masterIndex.month == month)
+                indexIterator[index] = {'optimizationIndex': optimizationIndex, 'evaluationIndex': evaluationIndex}
+                index += 1
     return indexIterator
 
-indexIterator = iteration_depth()
+indexIterator = iteration_depth(frequency="annual")
 spinner.message('Optimizing', 'yellow')
 
 start_time = time.time()
@@ -427,17 +513,18 @@ for step in indexIterator:
     evaluationEquity = evaluationEquity.drop(columns=nullFilter)
 
     # Equity and Commodities Portfolios
-    equityPortfolioAMER = Portfolio(sampleEquity['AMER'], 'max_sharpe')
-    equityPortfolioEM = Portfolio(sampleEquity['EM'], 'max_sharpe')
-    equityPortfolioEUR = Portfolio(sampleEquity['EUR'], 'max_sharpe')
-    equityPortfolioPAC = Portfolio(sampleEquity['PAC'], 'max_sharpe')
-    metalsPortfolio = Portfolio(sampleMetals, 'max_sharpe')
+    equityPortfolioAMER = Portfolio(sampleEquity['AMER'], 'min_var')
+    equityPortfolioEM = Portfolio(sampleEquity['EM'], 'min_var')
+    equityPortfolioEUR = Portfolio(sampleEquity['EUR'], 'min_var')
+    equityPortfolioPAC = Portfolio(sampleEquity['PAC'], 'min_var')
+    metalsPortfolio = Portfolio(sampleMetals, 'min_var')
 
     portfolio_returns.loc[evaluationIndex, 'equity_amer'] = equityPortfolioAMER.evaluate_performance(evaluationEquity['AMER']).values
     portfolio_returns.loc[evaluationIndex, 'equity_em'] = equityPortfolioEM.evaluate_performance(evaluationEquity['EM']).values
     portfolio_returns.loc[evaluationIndex, 'equity_eur'] = equityPortfolioEUR.evaluate_performance(evaluationEquity['EUR']).values
     portfolio_returns.loc[evaluationIndex, 'equity_pac'] = equityPortfolioPAC.evaluate_performance(evaluationEquity['PAC']).values
     portfolio_returns.loc[evaluationIndex, 'metals'] = metalsPortfolio.evaluate_performance(evaluationMetals).values
+
 
     # ERC Portfolio
     samplePortfolio = portfolio_returns.loc[optimizationIndex]
@@ -446,6 +533,10 @@ for step in indexIterator:
     ercPortfolio = Portfolio(samplePortfolio[portfolio_keys], 'erc', trust_markowitz=False)
 
     portfolio_returns.loc[evaluationIndex, 'ERC'] = ercPortfolio.evaluate_performance(evaluationPortfolio[portfolio_keys]).values
+
+    # Optional Visuals Logging
+    # portfolios = [equityPortfolioAMER, equityPortfolioEM, equityPortfolioEUR, equityPortfolioPAC, metalsPortfolio]
+    # [portfolio.log_visuals() for portfolio in portfolios]
 
     # print(ercPortfolio.actual_weights.head(1))
     Portfolio.non_combined_portfolios = []
