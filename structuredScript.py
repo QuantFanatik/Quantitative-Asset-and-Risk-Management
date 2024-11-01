@@ -122,30 +122,65 @@ def portfolio_evaluation(monthlyReturns: pd.Series | np.ndarray, monthlyRFrate: 
 
     return portfolio_performance
 
-def create_filter_mask(sampleData):
+# def create_filter_mask(sampleData):
     
-    highestYearEnd = sampleData.index.max()
-    highestYearStart = pd.to_datetime(f'{highestYearEnd.year}-01-31')
+#     highestYearEnd = sampleData.index.max()
+#     highestYearStart = pd.to_datetime(f'{highestYearEnd.year}-01-31')
     
-    # Zero December Returns
-    decemberData = sampleData.loc[[highestYearEnd]]
-    decemberFilter = decemberData.columns[decemberData.iloc[0] == np.inf] # deactivated
+#     # Zero December Returns
+#     decemberData = sampleData.loc[[highestYearEnd]]
+#     decemberFilter = decemberData.columns[decemberData.iloc[0] == np.inf] # deactivated
 
-    # December price below threshold
-    yearEndPrices = masterData.loc[highestYearEnd]
-    priceFilter = yearEndPrices[yearEndPrices < -np.inf].index # activated
+#     # December price below threshold
+#     yearEndPrices = masterData.loc[highestYearEnd]
+#     priceFilter = yearEndPrices[yearEndPrices < -np.inf].index # activated
 
-    # High return filter
-    returnFilterHigh = sampleData.columns[sampleData.max() >= np.inf] # deactivated
-    returnFilterLow = sampleData.columns[sampleData.min() <= -np.inf] # deactivated
+#     # High return filter
+#     returnFilterHigh = sampleData.columns[sampleData.max() >= np.inf] # deactivated
+#     returnFilterLow = sampleData.columns[sampleData.min() <= -np.inf] # deactivated
+#     returnFilter = returnFilterHigh.union(returnFilterLow)
+    
+#     # Frequent Zero Returns
+#     yearlyData = sampleData.loc[highestYearStart:highestYearEnd]
+#     monthsWithZeroReturns = (yearlyData == 0).sum(axis=0)
+#     frequentZerosFilter = monthsWithZeroReturns[monthsWithZeroReturns >= 12].index # activated
+
+#     return decemberFilter.union(frequentZerosFilter).union(priceFilter).union(returnFilter)
+
+def create_filter_mask(sampleData, marketValuesData, minMarketCap: float = -np.inf, maxMarketCap: float = np.inf):
+    # Identify the latest date in both sampleData and marketValuesData
+    latestDateSample = sampleData.index.max()
+
+    # Zero December Returns filter (activated/deactivated based on criteria)
+    decemberData = sampleData.loc[[latestDateSample]]
+    decemberFilter = decemberData.columns[decemberData.iloc[0] == np.inf]  # deactivated
+
+    # December price below threshold filter
+    yearEndPrices = sampleData.loc[latestDateSample]
+    priceFilter = yearEndPrices[yearEndPrices < -np.inf].index  # activated
+
+    # High return filter (both high and low extremes)
+    returnFilterHigh = sampleData.columns[sampleData.max() >= np.inf]  # deactivated
+    returnFilterLow = sampleData.columns[sampleData.min() <= -np.inf]  # deactivated
     returnFilter = returnFilterHigh.union(returnFilterLow)
     
-    # Frequent Zero Returns
-    yearlyData = sampleData.loc[highestYearStart:highestYearEnd]
+    # Frequent Zero Returns filter
+    startOfYear = pd.Timestamp(latestDateSample.year, 1, 1)
+    yearlyData = sampleData.loc[startOfYear:latestDateSample]
     monthsWithZeroReturns = (yearlyData == 0).sum(axis=0)
-    frequentZerosFilter = monthsWithZeroReturns[monthsWithZeroReturns >= 12].index # activated
+    frequentZerosFilter = monthsWithZeroReturns[monthsWithZeroReturns >= 12].index  # activated
 
-    return decemberFilter.union(frequentZerosFilter).union(priceFilter).union(returnFilter)
+    # Market Cap filters based on the latest date in marketValuesData
+    marketValuesAtEnd = marketValuesData.loc[latestDateSample]
+    marketCapFilterMin = marketValuesAtEnd[marketValuesAtEnd < minMarketCap].index
+    marketCapFilterMax = marketValuesAtEnd[marketValuesAtEnd > maxMarketCap].index
+
+    # Combine all filters
+    combinedFilter = decemberFilter.union(frequentZerosFilter).union(priceFilter).union(returnFilter)
+    combinedFilter = combinedFilter.union(marketCapFilterMin).union(marketCapFilterMax)
+    
+    # Return the combined filter
+    return combinedFilter
 
 class Portfolio():
     valid_types = ('markowitz', 'erc', 'max_sharpe', 'min_var')
@@ -165,6 +200,7 @@ class Portfolio():
         self.len = len(self.returns)
 
         self.optimal_weights = self.get_optimize()
+        print(self.optimal_weights)
         self.expected_portfolio_return = self.get_expected_portfolio_return()
         self.expected_portfolio_varcov = self.get_expected_portfolio_varcov()
 
@@ -218,7 +254,8 @@ class Portfolio():
         for i in range(N_SUMULATIONS):
             np.random.seed(i)
             simulated_returns = np.random.multivariate_normal(self.expected_returns, self.expected_covariance, self.len)
-            self.expected_returns = self._pandify(np.mean(simulated_returns, axis=0)) * ANNUALIZATION_FACTOR
+            # TODO: verify necessity of annualization factor
+            self.expected_returns = self._pandify(np.mean(simulated_returns, axis=0))# * ANNUALIZATION_FACTOR
             self.expected_covariance = self._pandify(np.cov(simulated_returns.T, ddof=0))
             self.optimal_weights = method()
             simulated_weights.append(self.optimal_weights)
@@ -379,12 +416,14 @@ class Portfolio():
             def jacobian(weights):
                 return np.dot(sample_covariance, weights) - gamma * expected_returns
 
-            result = minimize(objective,
-                            initial_guess,
-                            jac=jacobian,
-                            constraints=constraints,
-                            bounds=bounds,
-                            method='SLSQP')
+            kwargs = {'fun': objective,
+                      'jac': jacobian,
+                      'x0': initial_guess,
+                      'constraints': constraints,
+                      'bounds': bounds,
+                      'method': 'SLSQP',
+                      'tol': 1e-16}
+            result = minimize(**kwargs)
             
             optimized_weights = result.x
             results.append(optimized_weights)
@@ -415,6 +454,7 @@ spinner.message("Loading data...", "blue")
 root = os.path.dirname(__file__)
 staticPath = os.path.join(root, 'data', 'Static.xlsx')
 ritPath = os.path.join(root, 'data', 'DS_RI_T_USD_M.xlsx')
+mvPath = os.path.join(root, 'data', 'DS_MV_USD_M.xlsx')
 rfPath = os.path.join(root, 'data', 'Risk_Free_Rate.xlsx')
 
 staticData = pd.read_excel(staticPath, engine='openpyxl')
@@ -422,13 +462,21 @@ masterData = pd.read_excel(ritPath, usecols=lambda x: x != 'NAME', index_col=0, 
 masterData.index.rename('DATE', inplace=True) # print(sum(masterData.isna().any())) # Prices have no missing values
 masterData = masterData[masterData.index.year > 2000]
 
+capData = pd.read_excel(mvPath, usecols=lambda x: x != 'NAME', index_col=0, engine='openpyxl').transpose()
+capData.index = pd.to_datetime(capData.index, format='%Y-%m-%d')
+capData.index.rename('DATE', inplace=True)
+capData = capData[capData.index.year > 2000] * 1e6
+
 global masterIndex
 masterIndex = masterData.index
 df_dict = {}
+mv_dict = {}
 for region in ['AMER', 'EM', 'EUR', 'PAC']:
     filter = staticData['ISIN'][staticData['Region'] == region]
     df_dict[region] = masterData[filter].pct_change()
+    mv_dict[region] = capData[filter]
 equity_returns = pd.concat(df_dict.values(), keys=df_dict.keys(), axis=1)
+market_values = pd.concat(mv_dict.values(), keys=mv_dict.keys(), axis=1)
 
 commodities = {
     "Gold": "GC=F",
@@ -504,20 +552,25 @@ for step in indexIterator:
     evaluationIndex = indexIterator[step]['evaluationIndex']
 
     sampleEquity = equity_returns.loc[optimizationIndex]
+    sampleMarketValues = market_values.loc[optimizationIndex]
     sampleMetals = metal_returns.loc[optimizationIndex]
     evaluationEquity = equity_returns.loc[evaluationIndex]
     evaluationMetals = metal_returns.loc[evaluationIndex]
 
-    nullFilter = create_filter_mask(sampleEquity)
+    # nullFilter = create_filter_mask(sampleEquity)
+    minMarketCapThreshold = 0
+    maxMarketCapThreshold = 100e9
+    nullFilter = create_filter_mask(sampleEquity, sampleMarketValues, minMarketCapThreshold, maxMarketCapThreshold)
     sampleEquity = sampleEquity.drop(columns=nullFilter)
     evaluationEquity = evaluationEquity.drop(columns=nullFilter)
+    print(sampleEquity.shape)
 
     # Equity and Commodities Portfolios
-    equityPortfolioAMER = Portfolio(sampleEquity['AMER'], 'min_var')
-    equityPortfolioEM = Portfolio(sampleEquity['EM'], 'min_var')
-    equityPortfolioEUR = Portfolio(sampleEquity['EUR'], 'min_var')
-    equityPortfolioPAC = Portfolio(sampleEquity['PAC'], 'min_var')
-    metalsPortfolio = Portfolio(sampleMetals, 'min_var')
+    equityPortfolioAMER = Portfolio(sampleEquity['AMER'], 'max_sharpe')
+    equityPortfolioEM = Portfolio(sampleEquity['EM'], 'max_sharpe')
+    equityPortfolioEUR = Portfolio(sampleEquity['EUR'], 'max_sharpe')
+    equityPortfolioPAC = Portfolio(sampleEquity['PAC'], 'max_sharpe')
+    metalsPortfolio = Portfolio(sampleMetals, 'max_sharpe')
 
     portfolio_returns.loc[evaluationIndex, 'equity_amer'] = equityPortfolioAMER.evaluate_performance(evaluationEquity['AMER']).values
     portfolio_returns.loc[evaluationIndex, 'equity_em'] = equityPortfolioEM.evaluate_performance(evaluationEquity['EM']).values
@@ -552,63 +605,3 @@ print(portfolio_evaluation(portfolio_returns, pd.Series(0, index=portfolio_retur
 # print(portfolio_evaluation(portfolio_returns['metals'], pd.Series(0, index=portfolio_returns.index)))
 print(portfolio_evaluation(portfolio_returns['ERC'], pd.Series(0, index=portfolio_returns.index)))
 print(f"Optimization Runtime: {(time.time() - start_time):2f}s")
-# default: Optimization took 12.272448062896729
-# warm-start: Optimization took 12.01345682144165
-
-
-# Trust Markowitz
-# [ALL]: min_var - erc; 4.653315
-# {'mu': 0.07657150617814579, 'std': 0.08819977139383238, 'SR': 0.8681599166083583, 'min': -0.1353098477599214, 'max': 0.07905169449900758}
-# [ALL]: max_sharpe - erc; 6.090455
-# {'mu': 0.09188534292840678, 'std': 0.10682250633445015, 'SR': 0.8601683866199819, 'min': -0.18966399887745636, 'max': 0.11284597357735507}
-
-# Trust Sample
-# [ALL]: min_var - erc; 4.780630
-# {'mu': 0.07743546978041094, 'std': 0.08308139448015016, 'SR': 0.93204345286852**, 'min': -0.14875754901062582, 'max': 0.07565324681292446}
-# [ALL]: max_sharpe - erc; 5.73339 
-# {'mu': 0.08803843383025822, 'std': 0.09935060247694187, 'SR': 0.8861389023855283, 'min': -0.18885568544321116, 'max': 0.1014789952872169}
-
-# sr-erc
-# Wrapped --- 5.94755  7.670594   4.017071   5.452663  3.689266  5.73339
-# Unwrapped - 5.94755  7.670594   4.017071   5.452663  3.689266  5.73339
-
-# mv-erc 
-# Sampled --- 4.669425  8.984862   3.859747   2.291611  3.694905  4.780630 - 'SR': 0.931980528997611
-# EUR res --- 4.669425  8.984862   3.859747   2.744678  3.694905  4.969688 - 'SR': 0.937653663434709
-# All res --- 6.120157  8.439431   3.722466   2.744678  3.694905  5.059350 - 'SR': 0.8817597034161403
-
-# Sample moments for underlying portfolios
-
-# [AMER]: max_sharpe - max_sharpe 
-# {'mu': 0.09172913947106487, 'std': 0.11560761199805415, 'SR': 0.7934524196608161, 'min': -0.17830480979768404, 'max': 0.10239193131569116}
-# {'mu': 0.07273869221370122, 'std': 0.15069922337564170, 'SR': 0.4826746321869788, 'min': -0.18005035714502649, 'max': 0.23270087979011667}
-# {'mu': 0.07463570019195132, 'std': 0.12097513819898459, 'SR': 0.6169507330439055, 'min': -0.17877619218566382, 'max': 0.20070600163444913}
-
-# [AMER]: max_sharpe - erc 
-# {'mu': 0.09172913947106487, 'std': 0.11560761199805415, 'SR': 0.7934524196608161, 'min': -0.17830480979768404, 'max': 0.10239193131569116}
-# {'mu': 0.07273869221370122, 'std': 0.15069922337564170, 'SR': 0.4826746321869788, 'min': -0.18005035714502649, 'max': 0.23270087979011667}
-# {'mu': 0.08342414051025582, 'std': 0.10081397597045466, 'SR': 0.8275057074894532, 'min': -0.17895795287808525, 'max': 0.09431387517176634}
-# [ALL]: -//-; 5.698838**
-# {'mu': 0.08767184687355978, 'std': 0.09873028216153070, 'SR': 0.8879934803601753, 'min': -0.18886112098275987, 'max': 0.10135315180947321}
-
-# [AMER]: min_var - erc
-# {'mu': 0.07834498581821125, 'std': 0.10367413725804024, 'SR': 0.7556849556723498, 'min': -0.14917328462135587, 'max': 0.08445504842876275}
-# {'mu': 0.07245860735849607, 'std': 0.14869978988288443, 'SR': 0.4872811684237368, 'min': -0.18005035714502649, 'max': 0.23270087979011667}
-# {'mu': 0.07432796026078980, 'std': 0.09298803902345576, 'SR': 0.7993281828649054, 'min': -0.15987648111698566, 'max': 0.10890513608647240}
-# [ALL]: -//-; 4.780630
-# {'mu': 0.07743546978041094, 'std': 0.08308139448015016, 'SR': 0.93204345286852**, 'min': -0.14875754901062582, 'max': 0.07565324681292446}
-
-# [AMER]: min_var - min_var
-# {'mu': 0.07834498581821125, 'std': 0.10367413725804024, 'SR': 0.7556849556723498, 'min': -0.14917328462135587, 'max': 0.08445504842876275}
-# {'mu': 0.07245860735849607, 'std': 0.14869978988288443, 'SR': 0.4872811684237368, 'min': -0.18005035714502649, 'max': 0.23270087979011667}
-# {'mu': 0.07473273168119099, 'std': 0.09294352312780758, 'SR': 0.8040660517938969, 'min': -0.15454205642659236, 'max': 0.08815727630548274}
-
-# [AMER]: erc - erc 
-# {'mu': 0.09259233393955868, 'std': 0.12803295336865775, 'SR': 0.7231914245776129, 'min': -0.17928858736905143, 'max': 0.12870016257932135}
-# {'mu': 0.07553758995855087, 'std': 0.17761332870821120, 'SR': 0.4252923500051419, 'min': -0.18742611187346070, 'max': 0.21070192097875076}
-# {'mu': 0.08375917024128232, 'std': 0.11789237374745626, 'SR': 0.7104714883484105, 'min': -0.18167581812904670, 'max': 0.11614137125549948}
-
-# [AMER]: erc - max_sharpe 
-# {'mu': 0.09259233393955868, 'std': 0.12803295336865775, 'SR': 0.7231914245776129, 'min': -0.17928858736905143, 'max': 0.12870016257932135}
-# {'mu': 0.07553758995855087, 'std': 0.17761332870821120, 'SR': 0.4252923500051419, 'min': -0.18742611187346070, 'max': 0.21070192097875076}
-# {'mu': 0.07088341017652122, 'std': 0.13161653380544980, 'SR': 0.5385600739288439, 'min': -0.18130181186433206, 'max': 0.15288206330228960}
