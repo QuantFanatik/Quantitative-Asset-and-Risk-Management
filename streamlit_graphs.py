@@ -10,10 +10,24 @@ st.title('Efficient Frontiers Across Portfolios with Year Slider')
 root = os.path.dirname(__file__)
 file_path = os.path.join(root, 'data', 'efficient_frontiers.hdf')
 
-# Load the HDF file with caching
+# Load the HDF file with caching, merge the separate files
 @st.cache_data
 def load_data():
-    return pd.read_hdf(file_path)
+    files = [f for f in os.listdir('data') if f.startswith("efficient_frontiers_") and f.endswith(".hdf")]
+    data_chunks = []
+    
+    for file in files:
+        chunk = pd.read_hdf(os.path.join('data', file))
+        
+        # Ensure `year` is part of the index after loading
+        if 'year' not in chunk.index.names:
+            chunk = chunk.set_index(['year'], append=True)
+        
+        data_chunks.append(chunk)
+    
+    # Concatenate all chunks into a single DataFrame
+    merged_data = pd.concat(data_chunks).sort_index()
+    return merged_data
 
 # Generate efficient frontiers with Plotly slider for year control
 @st.cache_data
