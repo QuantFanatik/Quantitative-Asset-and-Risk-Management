@@ -160,7 +160,7 @@ def create_filter_mask(sampleData, marketValuesData, minMarketCap: float = -np.i
 class Portfolio():
     valid_types = ('markowitz', 'erc', 'max_sharpe', 'min_var')
     non_combined_portfolios = []
-    gamma_linspace = np.linspace(-0.5, 1.5, 11)
+    gamma_linspace = np.linspace(-0.5, 1.5, 101)
     
     def __init__(self, returns: pd.DataFrame | pd.Series, type: str='markowitz', names: list[str]=None, trust_markowitz: bool=False, resample: bool=False, target_gamma=None):
         assert type.lower() in self.valid_types, f"Invalid type: {type}. Valid types are: {self.valid_types}"
@@ -418,8 +418,9 @@ capData.index = pd.to_datetime(capData.index, format='%Y-%m-%d')
 capData.index.rename('DATE', inplace=True)
 capData = capData[capData.index.year > 2000] * 1e6
 
-global masterIndex
+global masterIndex, global_tickers
 masterIndex = masterData.index
+global_tickers = list(masterData.columns)
 df_dict = {}
 mv_dict = {}
 for region in ['AMER', 'EM', 'EUR', 'PAC']:
@@ -432,6 +433,8 @@ market_values = pd.concat(mv_dict.values(), keys=mv_dict.keys(), axis=1)
 commodities = {
     "Gold": "GC=F",
     "Silver": "SI=F",}
+
+global_tickers.extend(commodities.keys())
 
 metal_returns = pd.DataFrame(index=masterIndex)
 for name, ticker in commodities.items():
@@ -446,6 +449,8 @@ for df in [equity_returns, metal_returns]:
 portfolio_keys = ['equity_amer', 'equity_em', 'equity_pac', 'equity_eur', 'metals']
 portfolio_returns = pd.DataFrame(index=masterIndex, columns=[*portfolio_keys, 'ERC'])
 portfolio_returns[:] = 0
+
+global_tickers.extend(portfolio_keys)
 
 def iteration_depth(limit=None, frequency="annual"):
     if frequency == "annual":
@@ -490,6 +495,8 @@ def iteration_depth(limit=None, frequency="annual"):
                 index += 1
     return indexIterator
 
+
+visual_data = {}
 indexIterator = iteration_depth(frequency="annual")
 spinner.message('Optimizing', 'yellow')
 
@@ -510,18 +517,18 @@ for step in indexIterator:
 
     # nullFilter = create_filter_mask(sampleEquity)
     minMarketCapThreshold = 0
-    maxMarketCapThreshold = 100e9
+    maxMarketCapThreshold = np.inf
     nullFilter = create_filter_mask(sampleEquity, sampleMarketValues, minMarketCapThreshold, maxMarketCapThreshold)
     sampleEquity = sampleEquity.drop(columns=nullFilter)
     evaluationEquity = evaluationEquity.drop(columns=nullFilter)
     print(sampleEquity.shape)
 
     # Equity and Commodities Portfolios
-    equityPortfolioAMER = Portfolio(sampleEquity['AMER'], 'min_var', resample=True)
-    equityPortfolioEM = Portfolio(sampleEquity['EM'], 'min_var', resample=True)
-    equityPortfolioEUR = Portfolio(sampleEquity['EUR'], 'min_var', resample=True)
-    equityPortfolioPAC = Portfolio(sampleEquity['PAC'], 'min_var', resample=True)
-    metalsPortfolio = Portfolio(sampleMetals, 'min_var', resample=True)
+    equityPortfolioAMER = Portfolio(sampleEquity['AMER'], 'min_var')
+    equityPortfolioEM = Portfolio(sampleEquity['EM'], 'min_var')
+    equityPortfolioEUR = Portfolio(sampleEquity['EUR'], 'min_var')
+    equityPortfolioPAC = Portfolio(sampleEquity['PAC'], 'min_var')
+    metalsPortfolio = Portfolio(sampleMetals, 'min_var')
 
     portfolio_returns.loc[evaluationIndex, 'equity_amer'] = equityPortfolioAMER.evaluate_performance(evaluationEquity['AMER']).values
     portfolio_returns.loc[evaluationIndex, 'equity_em'] = equityPortfolioEM.evaluate_performance(evaluationEquity['EM']).values
@@ -537,12 +544,53 @@ for step in indexIterator:
 
     portfolio_returns.loc[evaluationIndex, 'ERC'] = ercPortfolio.evaluate_performance(evaluationPortfolio[portfolio_keys]).values
 
-    # Optional Visuals Logging
-    # portfolios = [equityPortfolioAMER, equityPortfolioEM, equityPortfolioEUR, equityPortfolioPAC, metalsPortfolio]
-    # [portfolio.log_visuals() for portfolio in portfolios]
+    # Optional Visual Logging
+    portfolios = [equityPortfolioAMER, equityPortfolioEM, equityPortfolioEUR, equityPortfolioPAC, metalsPortfolio, ercPortfolio]
+    portfolio_names = portfolio_keys + ['ERC']
+    for portfolio, portfolio_name in zip(portfolios, portfolio_names):
+        tickers = portfolio.ticker
+        frontier = portfolio.frontier
 
-    # print(ercPortfolio.actual_weights.head(1))
-    Portfolio.non_combined_portfolios = []
+        expected_returns = frontier['expected_return'].values
+        expected_variances = frontier['expected_variance'].values
+        expected_sharpes = frontier['expected_sharpe'].values
+        weights = frontier.loc[:, tickers].values
+        
+        # Store each gamma level's data in `visual_data`
+        for i, gamma in enumerate(Portfolio.gamma_linspace):
+            row_data = [expected_returns[i], expected_variances[i], expected_sharpes[i]]
+            
+            # Initialize NaN weights for all global tickers
+            weight_row = [np.nan] * len(global_tickers)
+            
+            # Fill weights for the actual assets in this portfolio
+            for j, asset in enumerate(tickers):
+                asset_index = global_tickers.index(asset)
+                weight_row[asset_index] = weights[i, j]
+            
+            # Combine metric data and weight data
+            row_data.extend(weight_row)
+            visual_data[(step, gamma, portfolio_name)] = row_data
+
+        # print(ercPortfolio.actual_weights.head(1))
+        Portfolio.non_combined_portfolios = []
+
+# Define the MultiIndex for rows
+index = pd.MultiIndex.from_tuples(visual_data.keys(), names=["year", "gamma", "portfolio"])
+
+# Define MultiIndex for columns
+columns = pd.MultiIndex.from_tuples(
+    [("metrics", "expected_return"), ("metrics", "expected_variance"), ("metrics", "expected_sharpe")] +
+    [("weights", asset) for asset in global_tickers],
+    names=["category", "attribute"]
+)
+
+# Create the final DataFrame from `visual_data`
+visual_df = pd.DataFrame.from_dict(visual_data, orient="index", columns=columns)
+visual_df.index = index  # Set the MultiIndex
+visual_df.to_hdf('data/efficient_frontiers.hdf', key='frontier_data', mode='w')
+# print(visual_df.loc[(slice(None), slice(None), 'equity_amer'), :].dropna(how='all', axis=1))
+# print(visual_df.loc[(slice(None), slice(None), 'ERC'), :].dropna(how='all', axis=1))
     
 
 spinner.erase()
