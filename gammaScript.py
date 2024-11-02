@@ -183,6 +183,12 @@ class Portfolio():
 
         if self.type != 'erc':
             Portfolio.non_combined_portfolios.append(self)
+        if self.type == 'erc':
+            self.frontier.loc[0, 'expected_return'] = self.expected_portfolio_return
+            self.frontier.loc[0, 'expected_variance'] = self.expected_portfolio_varcov
+            self.frontier.loc[0, 'expected_sharpe'] = self.expected_portfolio_return / np.sqrt(self.expected_portfolio_varcov)
+            for i, asset in enumerate(self.ticker):
+                self.frontier.loc[0, asset] = self.optimal_weights[i]
 
     def assign_gamma(self, gamma):
         """Assigns the closest gamma value from gamma_linspace to the provided target_gamma."""
@@ -556,39 +562,36 @@ for step in indexIterator:
         expected_sharpes = frontier['expected_sharpe'].values
         weights = frontier.loc[:, tickers].values
         
-        # Store each gamma level's data in `visual_data`
         for i, gamma in enumerate(Portfolio.gamma_linspace):
             row_data = [expected_returns[i], expected_variances[i], expected_sharpes[i]]
             
-            # Initialize NaN weights for all global tickers
             weight_row = [np.nan] * len(global_tickers)
-            
-            # Fill weights for the actual assets in this portfolio
             for j, asset in enumerate(tickers):
                 asset_index = global_tickers.index(asset)
                 weight_row[asset_index] = weights[i, j]
             
-            # Combine metric data and weight data
             row_data.extend(weight_row)
             visual_data[(step, gamma, portfolio_name)] = row_data
 
-        # print(ercPortfolio.actual_weights.head(1))
         Portfolio.non_combined_portfolios = []
 
-# Define the MultiIndex for rows
-index = pd.MultiIndex.from_tuples(visual_data.keys(), names=["year", "gamma", "portfolio"])
 
-# Define MultiIndex for columns
+index = pd.MultiIndex.from_tuples(visual_data.keys(), names=["year", "gamma", "portfolio"])
 columns = pd.MultiIndex.from_tuples(
     [("metrics", "expected_return"), ("metrics", "expected_variance"), ("metrics", "expected_sharpe")] +
     [("weights", asset) for asset in global_tickers],
     names=["category", "attribute"]
 )
 
-# Create the final DataFrame from `visual_data`
 visual_df = pd.DataFrame.from_dict(visual_data, orient="index", columns=columns)
 visual_df.index = index  # Set the MultiIndex
-visual_df.to_hdf('data/efficient_frontiers.hdf', key='frontier_data', mode='w')
+years = visual_df.index.get_level_values("year").unique()
+# We must break up the file into smaller chunks to use git
+for year in years:
+    yearly_data = visual_df.xs(year, level="year")
+    yearly_data.to_hdf(f'data/efficient_frontiers_{year}.hdf', key='frontier_data', mode='w')
+
+
 # print(visual_df.loc[(slice(None), slice(None), 'equity_amer'), :].dropna(how='all', axis=1))
 # print(visual_df.loc[(slice(None), slice(None), 'ERC'), :].dropna(how='all', axis=1))
     

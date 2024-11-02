@@ -18,11 +18,13 @@ def load_data():
     
     for file in files:
         chunk = pd.read_hdf(os.path.join('data', file))
-        
-        # Ensure `year` is part of the index after loading
+
+        # Extract `year` from the filename if it's not in columns or index
         if 'year' not in chunk.index.names:
-            chunk = chunk.set_index(['year'], append=True)
-        
+            year = int(file.split('_')[-1].split('.')[0])  # Extract year from filename
+            chunk['year'] = year  # Add year as a column
+            chunk = chunk.set_index('year', append=True)  # Add year to the index
+
         data_chunks.append(chunk)
     
     # Concatenate all chunks into a single DataFrame
@@ -90,7 +92,7 @@ def plot_efficient_frontiers_with_slider(data):
         xaxis_title="Variance (Risk)",
         yaxis_title="Expected Return",
         sliders=sliders,
-        xaxis_range=[0, 0.1],  # Limit the x-axis between 0 and 0.1
+        xaxis_range=[0, 0.05],  # Limit the x-axis between 0 and 0.1
         yaxis_range=[-0.1, 0.2],  # Limit the y-axis between -0.1 and 0.2
         width=800,
         height=600
@@ -116,56 +118,28 @@ def get_erc_data_for_gamma(data, gamma):
 # Generate stacked area chart for ERC portfolio weights over time with a Plotly slider for gamma
 @st.cache_data
 def plot_erc_composition(data):
-    gammas = data.index.get_level_values("gamma").unique()
+    # Select only gamma = 0 data
+    weight_data = get_erc_data_for_gamma(data, gamma=0)
     years = data.index.get_level_values("year").unique()
 
     # Initialize figure
     fig = go.Figure()
 
-    # Add a trace for each asset's weights over time, for each gamma value
-    for gamma in gammas:
-        weight_data = get_erc_data_for_gamma(data, gamma)
-        
-        # Create stacked area traces for each asset in the ERC portfolio for this gamma
-        for asset in weight_data.columns:
-            fig.add_trace(go.Scatter(
-                x=years,
-                y=weight_data[asset],
-                mode='lines',
-                stackgroup='one',  # Creates a stacked area chart
-                name=asset,
-                visible=(gamma == gammas[0])  # Show only the first gamma initially
-            ))
-
-    # Define slider steps for gamma values
-    steps = []
-    for i, gamma in enumerate(gammas):
-        step = dict(
-            method="restyle",
-            args=["visible", [False] * len(fig.data)],  # Start by hiding all traces
-            label=f"{gamma:.2f}",  # Format gamma with two decimal places
-        )
-
-        # Make only the traces for the current gamma visible
-        for j in range(i * len(weight_data.columns), (i + 1) * len(weight_data.columns)):
-            step["args"][1][j] = True
-
-        steps.append(step)
-
-    # Define slider with formatted labels
-    sliders = [dict(
-        active=0,
-        currentvalue={"prefix": "Gamma: ", "font": {"size": 16}},
-        pad={"t": 50},
-        steps=steps
-    )]
+    # Create stacked area traces for each asset in the ERC portfolio for gamma = 0
+    for asset in weight_data.columns:
+        fig.add_trace(go.Scatter(
+            x=years,
+            y=weight_data[asset],
+            mode='lines',
+            stackgroup='one',  # Creates a stacked area chart
+            name=asset
+        ))
 
     # Update layout
     fig.update_layout(
-        title="ERC Portfolio Composition Over Time by Gamma",
+        title="ERC Portfolio Composition Over Time (Gamma = 0)",
         xaxis_title="Year",
         yaxis_title="Portfolio Weight",
-        sliders=sliders,
         width=800,
         height=600
     )
@@ -180,5 +154,6 @@ data = load_data()
 fig = plot_efficient_frontiers_with_slider(data)
 st.plotly_chart(fig)
 
+# Generate the simplified ERC composition plot with gamma = 0
 fig2 = plot_erc_composition(data)
 st.plotly_chart(fig2)
