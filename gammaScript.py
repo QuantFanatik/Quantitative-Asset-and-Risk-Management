@@ -312,7 +312,7 @@ class Portfolio():
     
     def get_expected_covariance(self) -> pd.DataFrame | pd.Series:
         if self.trust_markowitz and self.type == 'erc':
-            internal_expectations = np.array([portfolio.expected_portfolio_varcov for portfolio in Portfolio.non_combined_portfolios])
+            internal_expectations = np.array([np.sqrt(portfolio.expected_portfolio_varcov) for portfolio in Portfolio.non_combined_portfolios])
             sample_correlations = self.returns.corr().fillna(0)
             varcov_matrix = np.outer(internal_expectations, internal_expectations) * sample_correlations
             return pd.DataFrame(varcov_matrix, index=self.returns.columns, columns=self.returns.columns)
@@ -325,6 +325,7 @@ class Portfolio():
         return self.optimal_weights.T @ self.expected_covariance @ self.optimal_weights
 
     def _resample(self, method) -> np.ndarray:
+        #TODO: Attention! Low number of simulations set for testing
         N_SUMULATIONS = 2 # 500
 
         original_moments = (self.expected_returns.copy(), self.expected_covariance.copy())
@@ -530,11 +531,11 @@ for step in indexIterator:
     print(sampleEquity.shape)
 
     # Equity and Commodities Portfolios
-    equityPortfolioAMER = Portfolio(sampleEquity['AMER'], 'min_var')
-    equityPortfolioEM = Portfolio(sampleEquity['EM'], 'min_var')
-    equityPortfolioEUR = Portfolio(sampleEquity['EUR'], 'min_var')
-    equityPortfolioPAC = Portfolio(sampleEquity['PAC'], 'min_var')
-    metalsPortfolio = Portfolio(sampleMetals, 'min_var')
+    equityPortfolioAMER = Portfolio(sampleEquity['AMER'], 'max_sharpe')
+    equityPortfolioEM = Portfolio(sampleEquity['EM'], 'max_sharpe')
+    equityPortfolioEUR = Portfolio(sampleEquity['EUR'], 'max_sharpe')
+    equityPortfolioPAC = Portfolio(sampleEquity['PAC'], 'max_sharpe')
+    metalsPortfolio = Portfolio(sampleMetals, 'max_sharpe')
 
     portfolio_returns.loc[evaluationIndex, 'equity_amer'] = equityPortfolioAMER.evaluate_performance(evaluationEquity['AMER']).values
     portfolio_returns.loc[evaluationIndex, 'equity_em'] = equityPortfolioEM.evaluate_performance(evaluationEquity['EM']).values

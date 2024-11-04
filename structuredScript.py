@@ -12,6 +12,7 @@ import threading
 import time
 from itertools import cycle
 
+# EXTREME WARNING: ANNUALIZATION_FACTOR assumes that we work with monthly data. If we change the frequency of the data, we must change this factor.
 global ANNUALIZATION_FACTOR
 ANNUALIZATION_FACTOR = 12
 
@@ -122,33 +123,8 @@ def portfolio_evaluation(monthlyReturns: pd.Series | np.ndarray, monthlyRFrate: 
 
     return portfolio_performance
 
-# def create_filter_mask(sampleData):
-    
-#     highestYearEnd = sampleData.index.max()
-#     highestYearStart = pd.to_datetime(f'{highestYearEnd.year}-01-31')
-    
-#     # Zero December Returns
-#     decemberData = sampleData.loc[[highestYearEnd]]
-#     decemberFilter = decemberData.columns[decemberData.iloc[0] == np.inf] # deactivated
-
-#     # December price below threshold
-#     yearEndPrices = masterData.loc[highestYearEnd]
-#     priceFilter = yearEndPrices[yearEndPrices < -np.inf].index # activated
-
-#     # High return filter
-#     returnFilterHigh = sampleData.columns[sampleData.max() >= np.inf] # deactivated
-#     returnFilterLow = sampleData.columns[sampleData.min() <= -np.inf] # deactivated
-#     returnFilter = returnFilterHigh.union(returnFilterLow)
-    
-#     # Frequent Zero Returns
-#     yearlyData = sampleData.loc[highestYearStart:highestYearEnd]
-#     monthsWithZeroReturns = (yearlyData == 0).sum(axis=0)
-#     frequentZerosFilter = monthsWithZeroReturns[monthsWithZeroReturns >= 12].index # activated
-
-#     return decemberFilter.union(frequentZerosFilter).union(priceFilter).union(returnFilter)
-
 def create_filter_mask(sampleData, marketValuesData, minMarketCap: float = -np.inf, maxMarketCap: float = np.inf):
-    # Identify the latest date in both sampleData and marketValuesData
+
     latestDateSample = sampleData.index.max()
 
     # Zero December Returns filter (activated/deactivated based on criteria)
@@ -200,7 +176,6 @@ class Portfolio():
         self.len = len(self.returns)
 
         self.optimal_weights = self.get_optimize()
-        print(self.optimal_weights)
         self.expected_portfolio_return = self.get_expected_portfolio_return()
         self.expected_portfolio_varcov = self.get_expected_portfolio_varcov()
 
@@ -216,7 +191,8 @@ class Portfolio():
     
     def get_expected_covariance(self) -> pd.DataFrame | pd.Series:
         if self.trust_markowitz and self.type == 'erc':
-            internal_expectations = np.array([portfolio.expected_portfolio_varcov for portfolio in Portfolio.non_combined_portfolios])
+            internal_expectations = np.array([np.sqrt(portfolio.expected_portfolio_varcov) for portfolio in Portfolio.non_combined_portfolios])
+            # internal_expectations = np.array([portfolio.expected_portfolio_varcov for portfolio in Portfolio.non_combined_portfolios])
             sample_correlations = self.returns.corr().fillna(0)
             varcov_matrix = np.outer(internal_expectations, internal_expectations) * sample_correlations
             return pd.DataFrame(varcov_matrix, index=self.returns.columns, columns=self.returns.columns)
@@ -356,6 +332,9 @@ class Portfolio():
             result = self._fit_erc_robust()
         else:
             result = weights.value / np.sum(weights.value)
+
+        print(self.expected_returns)
+        print(self.expected_covariance)
         return result
 
     def _fit_erc_robust(self) -> np.ndarray:
@@ -557,20 +536,19 @@ for step in indexIterator:
     evaluationEquity = equity_returns.loc[evaluationIndex]
     evaluationMetals = metal_returns.loc[evaluationIndex]
 
-    # nullFilter = create_filter_mask(sampleEquity)
     minMarketCapThreshold = 0
     maxMarketCapThreshold = 100e9
     nullFilter = create_filter_mask(sampleEquity, sampleMarketValues, minMarketCapThreshold, maxMarketCapThreshold)
+
     sampleEquity = sampleEquity.drop(columns=nullFilter)
     evaluationEquity = evaluationEquity.drop(columns=nullFilter)
-    print(sampleEquity.shape)
 
     # Equity and Commodities Portfolios
-    equityPortfolioAMER = Portfolio(sampleEquity['AMER'], 'max_sharpe')
-    equityPortfolioEM = Portfolio(sampleEquity['EM'], 'max_sharpe')
-    equityPortfolioEUR = Portfolio(sampleEquity['EUR'], 'max_sharpe')
-    equityPortfolioPAC = Portfolio(sampleEquity['PAC'], 'max_sharpe')
-    metalsPortfolio = Portfolio(sampleMetals, 'max_sharpe')
+    equityPortfolioAMER = Portfolio(sampleEquity['AMER'], 'min_var')
+    equityPortfolioEM = Portfolio(sampleEquity['EM'], 'min_var')
+    equityPortfolioEUR = Portfolio(sampleEquity['EUR'], 'min_var')
+    equityPortfolioPAC = Portfolio(sampleEquity['PAC'], 'min_var')
+    metalsPortfolio = Portfolio(sampleMetals, 'min_var')
 
     portfolio_returns.loc[evaluationIndex, 'equity_amer'] = equityPortfolioAMER.evaluate_performance(evaluationEquity['AMER']).values
     portfolio_returns.loc[evaluationIndex, 'equity_em'] = equityPortfolioEM.evaluate_performance(evaluationEquity['EM']).values
@@ -605,3 +583,49 @@ print(portfolio_evaluation(portfolio_returns, pd.Series(0, index=portfolio_retur
 # print(portfolio_evaluation(portfolio_returns['metals'], pd.Series(0, index=portfolio_returns.index)))
 print(portfolio_evaluation(portfolio_returns['ERC'], pd.Series(0, index=portfolio_returns.index)))
 print(f"Optimization Runtime: {(time.time() - start_time):2f}s")
+
+
+# EXTREME WARNING: ANNUALIZATION_FACTOR assumes that we work with monthly data. If we change the frequency of the data, we must change this factor.
+
+# TRUST MARKOWITZ
+# root
+#             equity_amer equity_em equity_pac equity_eur    metals       ERC
+# DATE                                                                      
+# 2021-12-31    5.038872  8.959687   3.859669   2.162318  3.694905  4.750206
+# equity_amer    0.782514
+# equity_em      0.930665
+# equity_pac     0.663112
+# equity_eur     0.365398
+# metals         0.487281
+# ERC            0.907579
+# dtype: object
+# {'mu': 0.07730146786822423, 'std': 0.0851732756355964, 'SR': 0.9075789006747755, 'min': -0.14004121007372708, 'max': 0.07579846656128097}
+# Optimization Runtime: 11.531652s
+
+# non root
+#             equity_amer equity_em equity_pac equity_eur    metals       ERC
+# DATE                                                                      
+# 2021-12-31    5.038872  8.959687   3.859669   2.162318  3.694905  4.665598
+# equity_amer    0.782514
+# equity_em      0.930665
+# equity_pac     0.663112
+# equity_eur     0.365398
+# metals         0.487281
+# ERC               0.869
+# dtype: object
+# {'mu': 0.0767088088348451, 'std': 0.08827248690122227, 'SR': 0.8690002007158013, 'min': -0.13663755623619714, 'max': 0.07903789443533936}
+# Optimization Runtime: 11.537733s
+
+# Dont trust Markowitz
+#             equity_amer equity_em equity_pac equity_eur    metals       ERC
+# DATE                                                                      
+# 2021-12-31    5.038872  8.959687   3.859669   2.162318  3.694905  4.797688
+# equity_amer    0.782514
+# equity_em      0.930665
+# equity_pac     0.663112
+# equity_eur     0.365398
+# metals         0.487281
+# ERC            0.932358
+# dtype: object
+# {'mu': 0.07762197680093252, 'std': 0.08325340507787439, 'SR': 0.9323579825753159, 'min': -0.15013698857945015, 'max': 0.07431939228752919}
+# Optimization Runtime: 11.621630s
