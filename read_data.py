@@ -46,6 +46,10 @@ for directory in directories:
 # print(master_df.tail(10))
 # master_df = pct_skip_missing(master_df, master_df.columns)
 # print(master_df.tail(10))
+to_rename = ["BTC-USD_daily_data", "ETH-USD_daily_data"]
+rename_to = ["Bitcoin", "Ethereum"]
+master_df.rename(columns=dict(zip(to_rename, rename_to)), inplace=True)
+master_df.index = master_df.index.strftime('%Y-%m-%d')
 master_df.to_csv(os.path.join(save_path, "master_df.csv"))
 
 # -------------------------

@@ -116,6 +116,8 @@ def annualized_volatility(sample_std: float) -> float:
     return sample_std * np.sqrt(settings.ANNUALIZATION_FACTOR)
 
 def sharpe_ratio(mean: float, volatility: float) -> float:
+    if isinstance(volatility, pd.Series) and volatility.eq(0).any():
+        return 0
     return mean / volatility
 
 def portfolio_evaluation(monthlyReturns: pd.Series | np.ndarray, monthlyRFrate: pd.Series) -> dict:
@@ -184,6 +186,46 @@ def create_filter_mask(sampleData, marketValuesData, minMarketCap: float = -np.i
     # Return the combined filter
     return combinedFilter
 
+def create_filter_mask1(sampleData, marketValuesData, minMarketCap: float = -np.inf, maxMarketCap: float = np.inf):
+    # Get the latest date in the sample data
+    latestDateSample = sampleData.index.max()
+
+    # Filtering based on December returns
+    decemberData = sampleData.loc[[latestDateSample]]
+    decemberFilter = decemberData.columns[decemberData.iloc[0] == 0]
+
+    # Price threshold filter for December (modify threshold as needed)
+    yearEndPrices = sampleData.loc[latestDateSample]
+    priceFilter = yearEndPrices[yearEndPrices < -np.inf].index  # Adjust threshold
+
+    # High and low return filters
+    returnFilterHigh = sampleData.columns[sampleData.max() >= 3]  # Adjust threshold
+    returnFilterLow = sampleData.columns[sampleData.min() <= -3]  # Adjust threshold
+    returnFilter = returnFilterHigh.union(returnFilterLow)
+
+    # Frequent zero returns filter
+    startOfYear = pd.Timestamp(latestDateSample.year, 1, 1)
+    yearlyData = sampleData.loc[startOfYear:latestDateSample]
+    monthsWithZeroReturns = (yearlyData == 0).sum(axis=0)
+    frequentZerosFilter = monthsWithZeroReturns[monthsWithZeroReturns >= 11].index
+
+    startOfYear = pd.Timestamp(latestDateSample.year-1, 1, 1)
+    yearlyData = sampleData.loc[startOfYear:latestDateSample]
+    monthsWithZeroReturns = (yearlyData == 0).sum(axis=0)
+    frequentZerosFilter2 = monthsWithZeroReturns[monthsWithZeroReturns >= 15].index
+
+    # Market cap filtering based on the latest date's data in marketValuesData
+    marketValuesAtEnd = marketValuesData.loc[latestDateSample]
+    marketCapFilterMin = marketValuesAtEnd[marketValuesAtEnd < minMarketCap].index
+    marketCapFilterMax = marketValuesAtEnd[marketValuesAtEnd > maxMarketCap].index
+
+    # Combine all filters, respecting the multi-index structure
+    combinedFilter = decemberFilter.union(frequentZerosFilter).union(priceFilter).union(returnFilter)
+    combinedFilter = combinedFilter.union(marketCapFilterMin).union(marketCapFilterMax).union(frequentZerosFilter2)
+
+    # Return combined filter, maintaining multi-index compatibility
+    return combinedFilter
+
 class Portfolio:
     valid_types = ('markowitz', 'erc', 'max_sharpe', 'min_var')
     non_combined_portfolios = []
@@ -198,13 +240,17 @@ class Portfolio:
 
     
 class FastPortfolio():
-    valid_types = ('markowitz', 'erc', 'max_sharpe', 'min_var')
+    valid_types = ('markowitz', 'erc', 'erc', 'max_sharpe', 'min_var')
     non_combined_portfolios = []
 
-    def __init__(self, returns: pd.DataFrame | pd.Series, type: str='markowitz', names: list[str]=None, trust_markowitz: bool=False, resample: bool=False):
+    def __init__(self, returns: pd.DataFrame | pd.Series, type: str='markowitz', names: list[str]=None, trust_markowitz: bool=False, resample: bool=False, main: bool=False):
         assert type.lower() in self.valid_types, f"Invalid type: {type}. Valid types are: {self.valid_types}"
-        #TODO: Attention! ERC portfolios use sample returns, not ex-ante expectations.
-        self.trust_markowitz = trust_markowitz
+        assert main or not trust_markowitz, "Non-main portfolios cannot trust Markowitz."
+        if returns.isna().all().all() and not trust_markowitz:
+            print("ERC sample is empty. Falling back to ex-ante expectations.")
+            self.trust_markowitz = True
+        else:
+            self.trust_markowitz = trust_markowitz
         self.resample = resample
         self.type = type.lower()
         self.ticker = returns.columns
@@ -218,14 +264,17 @@ class FastPortfolio():
         self.expected_portfolio_return = self.get_expected_portfolio_return()
         self.expected_portfolio_varcov = self.get_expected_portfolio_varcov()
 
-        if self.type != 'erc':
+        if self.type != 'erc' or not main:
             Portfolio.non_combined_portfolios.append(self)
+
 
     def get_expected_returns(self) -> pd.DataFrame | pd.Series:
         #TODO: Attention! If extending beyond ERC, if statement must be updated.
         if self.trust_markowitz and self.type == 'erc':
             internal_expectations = np.array([portfolio.expected_portfolio_return for portfolio in Portfolio.non_combined_portfolios])
-            return pd.Series(internal_expectations, index=self.returns.columns) 
+            return pd.Series(internal_expectations, index=self.returns.columns)
+        elif self.type == 'erc' and self.returns.eq(0).all().all():
+            return self.returns.mean(axis=0)
         return self.returns.mean(axis=0) * settings.ANNUALIZATION_FACTOR
     
     def get_expected_covariance(self) -> pd.DataFrame | pd.Series:
@@ -326,7 +375,7 @@ class FastPortfolio():
     
     def _fit_max_sharpe(self) -> np.ndarray:
         if self.expected_returns.isna().all().all() or (self.expected_returns == 0).all().all():
-            print("No data available for evaluation.")
+            # print("No data available for evaluation.")
             return np.zeros(self.dim)
         
         proxy_weights = cp.Variable(self.dim)
@@ -392,7 +441,7 @@ class FastPortfolio():
     
     def evaluate_performance(self, evaluationData: pd.DataFrame | pd.Series) -> pd.Series:
         # Returns Adjusted for Return-Shifted Weights
-        if evaluationData.isna().all().all() or (evaluationData == 0).all().all():
+        if evaluationData.isna().all().all():
             print("No data available for evaluation.")
             return pd.Series(0, index=evaluationData.index)
         portfolioWeights = self.optimal_weights
