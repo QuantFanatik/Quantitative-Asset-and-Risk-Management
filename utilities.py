@@ -518,10 +518,14 @@ class GammaPortfolio():
     non_combined_portfolios = []
     gamma_linspace = np.linspace(-0.5, 1.5, 101)
     
-    def __init__(self, returns: pd.DataFrame | pd.Series, type: str='markowitz', names: list[str]=None, trust_markowitz: bool=False, resample: bool=False, target_gamma=None):
+    def __init__(self, returns: pd.DataFrame | pd.Series, type: str='markowitz', names: list[str]=None, trust_markowitz: bool=False, resample: bool=False, target_gamma=None, main: bool=False):
         assert type.lower() in self.valid_types, f"Invalid type: {type}. Valid types are: {self.valid_types}"
         #TODO: Attention! ERC portfolios use sample returns, not ex-ante expectations.
-        self.trust_markowitz = trust_markowitz
+        if returns.isna().all().all() and not trust_markowitz:
+            print("ERC sample is empty. Falling back to ex-ante expectations.")
+            self.trust_markowitz = True
+        else:
+            self.trust_markowitz = trust_markowitz
         self.gamma = self.assign_gamma(target_gamma)
         self.resample = resample
         self.type = type.lower()
@@ -537,7 +541,7 @@ class GammaPortfolio():
         self.expected_portfolio_return = self.get_expected_portfolio_return()
         self.expected_portfolio_varcov = self.get_expected_portfolio_varcov()
 
-        if self.type != 'erc':
+        if self.type != 'erc' or not main:
             Portfolio.non_combined_portfolios.append(self)
         if self.type == 'erc':
             self.frontier.loc[0, 'expected_return'] = self.expected_portfolio_return
