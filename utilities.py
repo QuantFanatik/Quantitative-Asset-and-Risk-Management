@@ -1,12 +1,9 @@
 import numpy as np
 import pandas as pd
-from dataclasses import dataclass
 from scipy.optimize import Bounds, LinearConstraint, minimize
 import scipy.sparse.linalg as sparla
 import cvxpy as cp
 import os
-import yfinance as yf
-import itertools, sys
 import sys
 import threading
 import time
@@ -275,16 +272,25 @@ class FastPortfolio():
             return pd.Series(internal_expectations, index=self.returns.columns)
         elif self.type == 'erc' and self.returns.eq(0).all().all():
             return self.returns.mean(axis=0)
-        return self.returns.mean(axis=0) * settings.ANNUALIZATION_FACTOR
+        return self.returns.mean(axis=0)
     
     def get_expected_covariance(self) -> pd.DataFrame | pd.Series:
         if self.trust_markowitz and self.type == 'erc':
             internal_expectations = np.array([np.sqrt(portfolio.expected_portfolio_varcov) for portfolio in Portfolio.non_combined_portfolios])
-            # internal_expectations = np.array([portfolio.expected_portfolio_varcov for portfolio in Portfolio.non_combined_portfolios])
             sample_correlations = self.returns.corr().fillna(0)
             varcov_matrix = np.outer(internal_expectations, internal_expectations) * sample_correlations
-            return pd.DataFrame(varcov_matrix, index=self.returns.columns, columns=self.returns.columns)
-        return self.returns.cov(ddof=0)
+            varcov_matrix = pd.DataFrame(varcov_matrix, index=self.returns.columns, columns=self.returns.columns)
+        else:
+            varcov_matrix = self.returns.cov(ddof=0)
+
+        # Poison the covariance matrix for invalid assets
+        null_variance_assets = self.returns.var(axis=0).eq(0)
+        null_variance_assets = null_variance_assets[null_variance_assets].index.tolist()
+        varcov_matrix.loc[null_variance_assets, :] = 0
+        varcov_matrix.loc[:, null_variance_assets] = 0
+        varcov_matrix.loc[null_variance_assets, null_variance_assets] = 100 + 10*np.random.rand()
+
+        return varcov_matrix
     
     # TODO: Check annualization factor
     def get_expected_portfolio_return(self) -> float:
@@ -675,8 +681,18 @@ class GammaPortfolio():
             internal_expectations = np.array([np.sqrt(portfolio.expected_portfolio_varcov) for portfolio in Portfolio.non_combined_portfolios])
             sample_correlations = self.returns.corr().fillna(0)
             varcov_matrix = np.outer(internal_expectations, internal_expectations) * sample_correlations
-            return pd.DataFrame(varcov_matrix, index=self.returns.columns, columns=self.returns.columns)
-        return self.returns.cov(ddof=0)
+            varcov_matrix = pd.DataFrame(varcov_matrix, index=self.returns.columns, columns=self.returns.columns)
+        else:
+            varcov_matrix = self.returns.cov(ddof=0)
+
+        # Poison the covariance matrix for invalid assets
+        null_variance_assets = self.returns.var(axis=0).eq(0)
+        null_variance_assets = null_variance_assets[null_variance_assets].index.tolist()
+        varcov_matrix.loc[null_variance_assets, :] = 0
+        varcov_matrix.loc[:, null_variance_assets] = 0
+        varcov_matrix.loc[null_variance_assets, null_variance_assets] = 100 + 10*np.random.rand()
+
+        return varcov_matrix
     
     def get_expected_portfolio_return(self) -> float:
         return np.dot(self.expected_returns, self.optimal_weights)
@@ -744,12 +760,16 @@ class GammaPortfolio():
     
     def evaluate_performance(self, evaluationData: pd.DataFrame | pd.Series) -> pd.Series:
         # Returns Adjusted for Return-Shifted Weights
-        if evaluationData.isna().all().all() or (evaluationData == 0).all().all():
-            print("No data available for evaluation.")
-            return pd.Series(0, index=evaluationData.index)
         portfolioWeights = self.optimal_weights
         subperiodReturns = []
         subperiodWeights = [portfolioWeights]
+
+        if evaluationData.isna().all().all() or (evaluationData == 0).all().all():
+            print("No data available for evaluation.")
+            self.actual_returns = pd.Series(0, index=evaluationData.index)
+            self.actual_weights = pd.DataFrame(0, index=evaluationData.index, columns=self.ticker)
+            return pd.Series(0, index=evaluationData.index)
+        
         for singleSubperiodReturns in evaluationData.values:
             portfolioReturns = subperiodWeights[-1] @ singleSubperiodReturns
             portfolioWeights = subperiodWeights[-1] * (1 + singleSubperiodReturns) / (1 + portfolioReturns)

@@ -1,12 +1,12 @@
 from utilities import *
 
 config = {
-    'limit_year': 2010,
+    'limit_year': None,
     'data_frequency': "monthly",
     'rebalancing_frequency': "annual",
     'ANNUALIZATION_FACTOR': 12,
     'master_index': None,
-    'mode': 'fast',} # 'fast' or 'gamma' for frontier optimization
+    'mode': 'gamma',} # 'fast' or 'gamma' for frontier optimization
 
 settings.update_settings(**config)
 
@@ -33,8 +33,9 @@ indexIterator = iteration_depth()
 spinner.message('Optimizing', 'yellow')
 
 portfolio_keys = ['equity_amer', 'equity_em', 'equity_eur', 'equity_pac', 'metals', 'commodities', 'crypto', 'volatilities']
-portfolio_returns = pd.DataFrame(index=masterIndex, columns=[*portfolio_keys, 'ERC'])
-portfolio_weights = pd.DataFrame(index=masterIndex, columns=all_returns.columns.append(pd.MultiIndex.from_product([['erc'], portfolio_keys])))
+portfolio_returns = pd.DataFrame(index=masterIndex, columns=[*portfolio_keys, 'erc'])
+
+portfolio_weights = []
 
 start_time = time.time()
 for step in indexIterator:
@@ -86,26 +87,20 @@ for step in indexIterator:
 
     ercPortfolio = Portfolio(samplePortfolio[portfolio_keys], 'erc', trust_markowitz=False, main=True)
 
-    portfolio_returns.loc[evaluationIndex, 'ERC'] = ercPortfolio.evaluate_performance(evaluationPortfolio[portfolio_keys]).values
+    portfolio_returns.loc[evaluationIndex, 'erc'] = ercPortfolio.evaluate_performance(evaluationPortfolio[portfolio_keys]).values
+
+    step_weights = []
+    for portfolio, category in zip([*Portfolio.non_combined_portfolios, ercPortfolio], [*portfolio_keys, 'erc']):
+        weights = portfolio.actual_weights
+        weights.columns = pd.MultiIndex.from_product([[category], weights.columns])
+        step_weights.append(weights)
+    portfolio_weights.append(pd.concat(step_weights, axis=1))
 
     Portfolio.non_combined_portfolios = []
 
-    # Tracking metrics
-    portfolio_weights[portfolio_keys[0]].update(equityPortfolioAMER.actual_weights.reindex(index=evaluationIndex, columns=portfolio_weights[portfolio_keys[0]].columns))
-    portfolio_weights.loc[evaluationIndex, portfolio_keys[1]] =     equityPortfolioEM.actual_weights
-    portfolio_weights.loc[evaluationIndex, portfolio_keys[2]] =    equityPortfolioEUR.actual_weights
-    portfolio_weights.loc[evaluationIndex, portfolio_keys[3]] =    equityPortfolioPAC.actual_weights
-
-    portfolio_weights.loc[evaluationIndex, portfolio_keys[4]] =       metalsPortfolio.actual_weights
-    portfolio_weights.loc[evaluationIndex, portfolio_keys[5]] =  commoditiesPortfolio.actual_weights
-    portfolio_weights.loc[evaluationIndex, portfolio_keys[6]] =       cryptoPortfolio.actual_weights
-    portfolio_weights.loc[evaluationIndex, portfolio_keys[7]] = volatilitiesPortfolio.actual_weights
-
-    portfolio_weights.loc[evaluationIndex, 'ERC'] = ercPortfolio.actual_weights
-
+portfolio_weights = pd.concat(portfolio_weights, axis=0).reindex(columns=all_returns.columns.append(pd.MultiIndex.from_product([['erc'], portfolio_keys])))
 portfolio_returns.to_csv(os.path.join(root, 'data', 'portfolio_returns.csv'))
 portfolio_weights.to_csv(os.path.join(root, 'data', 'portfolio_weights.csv'))
-print(portfolio_weights[portfolio_weights.index.year == 2009])
 
 spinner.erase()
 spinner.message('Done!\n', 'green')
@@ -113,5 +108,5 @@ spinner.stop()
 
 print((1 + portfolio_returns[portfolio_returns.index.year <= 2021]).cumprod().tail(1))
 print(portfolio_evaluation(portfolio_returns, pd.Series(0, index=portfolio_returns.index))['SR'])
-print(portfolio_evaluation(portfolio_returns['ERC'], pd.Series(0, index=portfolio_returns.index)))
+print(portfolio_evaluation(portfolio_returns['erc'], pd.Series(0, index=portfolio_returns.index)))
 print(f"Optimization Runtime: {(time.time() - start_time):2f}s")
