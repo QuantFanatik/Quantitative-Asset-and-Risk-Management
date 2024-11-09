@@ -138,5 +138,5 @@ if choice == "Data Exploration":
 # -----------------------------
 # Equal Risk Contributions
 # -----------------------------
-    if choice == "Data Exploration":
+    if choice == "Equal Risk Contributions":
         pass
