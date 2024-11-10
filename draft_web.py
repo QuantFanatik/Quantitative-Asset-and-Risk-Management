@@ -259,6 +259,12 @@ if choice == "Performance":
         cumulative_returns = cumulative_returns[cumulative_returns.index >= '2006-01-01']
         st.line_chart(cumulative_returns,color="#1ABC9C" , x_label="Year", y_label="cumulative return (in %)",height=400,width=700,use_container_width=False)
 
+        st.write("Do you want to invest in our strategy?")
+        sentiment_mapping = [":material/thumb_down:", ":material/thumb_up:"]
+        selected = st.feedback("thumbs")
+        if selected is not None:
+            st.markdown(f"You selected: {sentiment_mapping[selected]}")
+
     if choice == False:
         list_ = ['equity_amer', 'equity_em', 'equity_eur', 'equity_pac','metals','commodities', 'volatilities','erc']
 
@@ -266,3 +272,5 @@ if choice == "Performance":
         cumulative_returns_rest = cumulative_returns_rest[cumulative_returns_rest.index >= '2006-01-01']
         st.line_chart(cumulative_returns_rest, x_label="Year", y_label="cumulative return (in %)",height=455,width=700,use_container_width=False)
         st.write("Note: Crypto is not in the graph because ...")
+
+
