@@ -833,4 +833,23 @@ def iteration_depth():
                 index += 1
     return indexIterator
 
+def split_large_csv(dataframe, base_path, base_filename="efficient_frontiers", max_size_mb=50):
+    import math
 
+    temp_file_path = os.path.join(base_path, f"{base_filename}_temp.csv")
+    dataframe.to_csv(temp_file_path, index=True)
+    total_size_mb = os.path.getsize(temp_file_path) / (1024 * 1024)
+    os.remove(temp_file_path)
+
+    num_chunks = math.ceil(total_size_mb / max_size_mb)
+    if num_chunks > 1:
+        chunk_size = math.ceil(len(dataframe) / num_chunks)
+        for i in range(num_chunks):
+            chunk = dataframe.iloc[i * chunk_size : (i + 1) * chunk_size]
+            chunk_path = os.path.join(base_path, f"{base_filename}_part{i + 1}.csv")
+            chunk.to_csv(chunk_path, index=True)
+        print(f"DataFrame split into {num_chunks} chunks.")
+    else:
+        file_path = os.path.join(base_path, f"{base_filename}.csv")
+        dataframe.to_csv(file_path, index=True)
+        print("DataFrame saved as a single file.")

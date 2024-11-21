@@ -1,14 +1,14 @@
 from utilities import *
 
 config = {
-    'limit_year': None,
+    'limit_year': 2010,
     'data_frequency': "monthly",
     'rebalancing_frequency': "annual",
     'ANNUALIZATION_FACTOR': 12,
     'master_index': None,
     'global_tickers': None,
     'mode': 'gamma', # 'fast' or 'gamma' for frontier optimization
-    'gamma_linspace': np.linspace(-0.5, 1.5, 101)} # 101
+    'gamma_linspace': np.linspace(-0.5, 1.5, 3)} # 101
 
 settings.update_settings(**config)
 
@@ -132,25 +132,17 @@ portfolio_returns.to_csv(os.path.join(root, 'data', 'portfolio_returns.csv'))
 portfolio_weights.to_csv(os.path.join(root, 'data', 'portfolio_weights.csv'))
 
 if settings.mode == 'gamma':
-    # Create MultiIndex for rows
     index = pd.MultiIndex.from_tuples(visual_data.keys(), names=["year", "gamma", "portfolio"])
-    
-    # Create MultiIndex for columns
     columns = pd.MultiIndex.from_tuples(
         [("metrics", "expected_return"), ("metrics", "expected_variance"), ("metrics", "expected_sharpe")] +
         [("weights", asset) for asset in settings.global_tickers],
-        names=["category", "attribute"]
-    )
+        names=["category", "attribute"])
 
-    # Construct DataFrame
     visual_df = pd.DataFrame.from_dict(visual_data, orient="index", columns=columns)
-    visual_df.index = index  # Set the MultiIndex
-    
-    # Reset the index, keeping 'year' as the index while flattening 'gamma' and 'portfolio'
-    visual_df.reset_index(level=["gamma", "portfolio"], inplace=True)  # Flatten all but 'year'
-    
-    # Save the DataFrame to a CSV file
-    visual_df.to_csv(f'data/efficient_frontiers.csv', index=True)  # Save with 'year' as the index
+    visual_df.index = index
+    base_path = os.path.join(root, "data")
+    base_filename = "efficient_frontiers"
+    split_large_csv(visual_df, base_path, base_filename, max_size_mb=50)
 
 spinner.erase()
 spinner.message('Done!\n', 'green')

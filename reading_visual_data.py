@@ -2,6 +2,14 @@ import pandas as pd
 import numpy as np
 import os
 
+def load_chunks(directory, base_filename):
+    chunk_files = sorted(
+        [os.path.join(directory, f) for f in os.listdir(directory) if f.startswith(base_filename) and f.endswith('.csv')])
+    if not chunk_files:
+        raise FileNotFoundError(f"No chunk files found for base filename '{base_filename}' in '{directory}'")
+    all_chunks = [pd.read_csv(chunk, header=[0, 1], index_col=[0, 1, 2]) for chunk in chunk_files]
+    return pd.concat(all_chunks, axis=0)
+
 root = os.path.dirname(__file__)
 returns_path = os.path.join(root, 'data', 'portfolio_returns.csv')
 weights_path = os.path.join(root, 'data', 'portfolio_weights.csv')
@@ -10,28 +18,38 @@ frontiers_path = os.path.join(root, 'data', 'efficient_frontiers.csv')
 portfolio_returns = pd.read_csv(returns_path, index_col=0, parse_dates=True)
 portfolio_weights = pd.read_csv(weights_path, index_col=0, parse_dates=True, header=[0, 1])
 
-portfolio_frontiers = pd.read_csv(frontiers_path, header=[0, 1], index_col=0)
+portfolio_frontiers = load_chunks(os.path.join(root, 'data'), 'efficient_frontiers')
 new_columns = [(top, "" if "Unnamed" in bottom else bottom) for top, bottom in portfolio_frontiers.columns]
 portfolio_frontiers.columns = pd.MultiIndex.from_tuples(new_columns, names=["category", "attribute"])
-print(portfolio_frontiers)
 
-# print(portfolio_returns[portfolio_returns.index.year >= 2006].head(10))
-# print(portfolio_weights[portfolio_weights.index.year >= 2006].head(10))
-# print(portfolio_weights.columns.get_level_values(0).unique())
+# Examples usage
+print(portfolio_returns[portfolio_returns.index.year >= 2006].head(2))
+print(portfolio_weights[portfolio_weights.index.year >= 2006].head(2))
+print(portfolio_weights.columns.get_level_values(0).unique())
 
-# portfolio_weights = portfolio_weights.loc[:, ('equity_amer', slice(None))]
-# import matplotlib.pyplot as plt
-# plt.figure(figsize=(14, 7))
-# plt.stackplot(portfolio_weights.index, portfolio_weights.T, labels=portfolio_weights.columns)
-# plt.title('ERC Portfolio Weights Over Time (Stacked Area)')
-# plt.xlabel('Date')
-# plt.ylabel('Weight')
-# plt.legend(title='ERC Components', loc='upper left')
-# plt.grid(True)
-# plt.show()
+# Select the weights of only the american equity portfolio
+portfolio_weights = portfolio_weights.loc[:, ('equity_amer', slice(None))]
 
-# df = pd.read_csv(frontiers_path, header=[0, 1], index_col=0)
-# df.replace(np.nan, 0, inplace=True)
-# df.columns.set_names(["category", "attribute"], inplace=True)
-# print(df.head())
+# The efficient frontiers are stored in a multi-index DataFrame, 
+# the index levels are year, gamma, and portfolio (in that order)
+# Example 1 - See unique portfolio names
+print(portfolio_frontiers.index.get_level_values("portfolio").unique())
+
+# Example 2 - Select the efficient frontier for the metals portfolio in year 3
+year = 3
+gamma = slice(None) # All gamma values
+portfolio = "metals"
+
+metals_data = portfolio_frontiers.loc[
+    (year, gamma, portfolio), # Selecting rows
+    (slice(None), ['expected_return', 'expected_variance'])]  # Selecting columns
+
+print(metals_data)
+
+# Example 3 - Extract the gamma and expected return vectors
+gamma_vector = metals_data.index.get_level_values('gamma').to_numpy()
+expected_return_vector = metals_data[('metrics', 'expected_return')].to_numpy()
+
+print("Gamma Vector:", gamma_vector)
+print("Expected Return Vector:", expected_return_vector)
 
