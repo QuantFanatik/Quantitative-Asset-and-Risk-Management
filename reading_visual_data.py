@@ -12,4 +12,13 @@ print(portfolio_returns[portfolio_returns.index.year >= 2006].head(10))
 print(portfolio_weights[portfolio_weights.index.year >= 2006].head(10))
 print(portfolio_weights.columns.get_level_values(0).unique())
 
-
+portfolio_weights = portfolio_weights.loc[:, ('equity_amer', slice(None))]
+import matplotlib.pyplot as plt
+plt.figure(figsize=(14, 7))
+plt.stackplot(portfolio_weights.index, portfolio_weights.T, labels=portfolio_weights.columns)
+plt.title('ERC Portfolio Weights Over Time (Stacked Area)')
+plt.xlabel('Date')
+plt.ylabel('Weight')
+plt.legend(title='ERC Components', loc='upper left')
+plt.grid(True)
+plt.show()
