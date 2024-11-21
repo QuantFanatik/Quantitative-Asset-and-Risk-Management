@@ -1,14 +1,14 @@
 from utilities import *
 
 config = {
-    'limit_year': 2010,
+    'limit_year': None,
     'data_frequency': "monthly",
     'rebalancing_frequency': "annual",
     'ANNUALIZATION_FACTOR': 12,
     'master_index': None,
     'global_tickers': None,
     'mode': 'gamma', # 'fast' or 'gamma' for frontier optimization
-    'gamma_linspace': np.linspace(-0.5, 1.5, 3)} # 101
+    'gamma_linspace': np.linspace(-0.5, 1.5, 101)} # 101
 
 settings.update_settings(**config)
 
