@@ -1,8 +1,11 @@
 import streamlit as st
 import numpy as np
 import pandas as pd
-import os
 import seaborn as sns
+import plotly.express as px
+import matplotlib.pyplot as plt
+import os
+
 
 # Data Source 1
 # ---------------------------------------------------------------------------------------
@@ -12,6 +15,7 @@ weights_path = os.path.join(root, 'data', 'portfolio_weights.csv')
 
 portfolio_returns = pd.read_csv(returns_path, index_col=0, parse_dates=True)
 portfolio_weights = pd.read_csv(weights_path, index_col=0, parse_dates=True, header=[0, 1])
+portfolio_weights = portfolio_weights[portfolio_weights.index.year >= 2006]
 
 # Data Source 2
 # ---------------------------------------------------------------------------------------
@@ -44,25 +48,24 @@ corr_matrix = master_df.corr()
 
 # list ISIN of equities
 list_data_equity_path = os.path.join(root, 'data', 'list_equity')
-
 list_data_equity_amer = pd.read_csv(os.path.join(list_data_equity_path, "equity_amer.csv"))
 list_data_equity_em = pd.read_csv(os.path.join(list_data_equity_path, "equity_em.csv"))
 list_data_equity_eur = pd.read_csv(os.path.join(list_data_equity_path, "equity_eur.csv"))
 list_data_equity_pac = pd.read_csv(os.path.join(list_data_equity_path, "equity_pac.csv"))
-# ---------------------------------------------------------------------------------------
 
-# -----------------------------
+
+#***********************************************************************************************************
 # Principal bar
-# -----------------------------
+#***********************************************************************************************************
 with st.sidebar:
     st.title("Portfolio Optimization")
     choice = st.radio("Steps", ["Data Exploration", "Equal Risk Contributions", "Optimal portfolio", "Performance"])
     st.info("This tool uses equal risk contributions method to select optimal weights for each "
             "type of asset classes. Then, we use Markowitz optimization to choose an optimal portfolio.")
 
-# -----------------------------
+#***********************************************************************************************************
 # Data Exploration
-# -----------------------------
+#***********************************************************************************************************
 if choice == "Data Exploration":
 
     st.title("Data Exploration")
@@ -86,7 +89,7 @@ if choice == "Data Exploration":
             data_use = df_volatilities
             correl_matrix = corr_matrix.loc[list_volatilities, list_volatilities]
 
-        st.write("")
+
         st.subheader("Expected returns and volatilities", divider="gray")
         st.write("Expected returns")
         st.bar_chart(data_use.mean())
@@ -135,8 +138,139 @@ if choice == "Data Exploration":
         st.markdown("**Equities composition**:")
         st.write(list_isin)
 
-# -----------------------------
+#***********************************************************************************************************
 # Equal Risk Contributions
-# -----------------------------
-    if choice == "Equal Risk Contributions":
+#***********************************************************************************************************
+if choice == "Equal Risk Contributions":
+
+    st.title("Equal Risk Contributions")
+    selection = st.selectbox("Choose portfolio class", list_clean_name, index=0)
+    st.info("We have to optimize each class of portfolio before use Matkowitz in our global porfolio")
+
+    if selection == "Commodities":
+        data_use = portfolio_weights["commodities"]
+
+    if selection == "Metals":
+        data_use = portfolio_weights["metals"]
+
+    if selection == "Crypto":
+        data_use = portfolio_weights[portfolio_weights.index >= pd.to_datetime("2014-12-31")]["crypto"]
+
+    if selection == "Volatilities":
+        data_use = portfolio_weights["volatilities"]
+
+    if selection == "North American Equities":
+        data_use = portfolio_weights["equity_amer"]
+
+    if selection == "Emerging Markets Equities":
+        data_use = portfolio_weights["equity_em"]
+
+    if selection == "European Equities":
+        data_use = portfolio_weights["equity_eur"]
+
+    if selection == "Asia-Pacific Equities":
+        data_use = portfolio_weights["equity_pac"]
+
+    # Date slider
+    # -----------------------------------------------------------------------------------------
+    if selection in ["Commodities", "Metals", "Crypto", "Volatilities"]:
+        data_use.index = pd.to_datetime(data_use.index)
+
+        date_slider = st.slider(
+            'Choose the date',
+            min_value=data_use.index.min().to_pydatetime(),  # Convert to Python datetime
+            max_value=data_use.index.max().to_pydatetime(),  # Convert to Python datetime
+            format="YYYY-MM-DD",
+            value=data_use.index.min().to_pydatetime()  # Use the first date as default
+        )
+
+        # Convert the selected date slider value to pandas Timestamp
+        date_slider = pd.Timestamp(date_slider)  # Ensure it's a pandas Timestamp for consistency
+
+        # Filter data up to selected date
+        filtered_data = data_use[data_use.index <= date_slider]
+
+        # Extract weights for the selected date
+        latest_data = filtered_data.iloc[-1]  # Prend la dernière ligne filtrée
+
+        # Do the pie chart
+        fig = px.pie(latest_data, values=latest_data.values, names=latest_data.index)
+
+        st.subheader(f"Weight allocation in {date_slider.strftime('%Y-%m-%d')}")
+        st.plotly_chart(fig)
+    # -----------------------------------------------------------------------------------------
+    st.subheader("Weight allocation over time")
+    st.bar_chart(data_use)
+
+#***********************************************************************************************************
+# Optimal portfolio
+#***********************************************************************************************************
+if choice == "Optimal portfolio":
+
+    st.title("Optimal portfolio")
+    selection = st.radio("Choose visualization",["Efficient frontier","Portfolio composition"])
+
+    if selection == "Efficient frontier":
         pass
+
+    if selection == "Portfolio composition":
+
+        data_use = portfolio_weights["erc"]
+        data_use.index = pd.to_datetime(data_use.index)
+
+        date_slider = st.slider(
+            'Choose the date',
+            min_value=data_use.index.min().to_pydatetime(),  # Convert to Python datetime
+            max_value=data_use.index.max().to_pydatetime(),  # Convert to Python datetime
+            format="YYYY-MM-DD",
+            value=data_use.index.min().to_pydatetime()  # Use the first date as default
+        )
+
+        # Convert the selected date slider value to pandas Timestamp
+        date_slider = pd.Timestamp(date_slider)  # Ensure it's a pandas Timestamp for consistency
+
+        # Filter data up to selected date
+        filtered_data = data_use[data_use.index <= date_slider]
+
+        # Extract weights for the selected date
+        latest_data = filtered_data.iloc[-1]  # Prend la dernière ligne filtrée
+
+        # Do the pie chart
+        fig = px.pie(latest_data, values=latest_data.values, names=latest_data.index)
+
+        st.subheader(f"Weight allocation in {date_slider.strftime('%Y-%m-%d')}")
+        st.plotly_chart(fig)
+
+        st.subheader("Weight allocation over time")
+        st.bar_chart(data_use)
+
+#***********************************************************************************************************
+# Performance
+#***********************************************************************************************************
+if choice == "Performance":
+
+    st.title("Performance")
+    st.subheader("Cumulative return", divider="gray")
+
+    choice = st.toggle("Our strategy",value=True)
+
+    if choice == True:
+        cumulative_returns = (1 + portfolio_returns["erc"]).cumprod()
+        cumulative_returns = cumulative_returns[cumulative_returns.index >= '2006-01-01']
+        st.line_chart(cumulative_returns,color="#1ABC9C" , x_label="Year", y_label="cumulative return (in %)",height=400,width=700,use_container_width=False)
+
+        st.write("Do you want to invest in our strategy?")
+        sentiment_mapping = [":material/thumb_down:", ":material/thumb_up:"]
+        selected = st.feedback("thumbs")
+        if selected is not None:
+            st.markdown(f"You selected: {sentiment_mapping[selected]}")
+
+    if choice == False:
+        list_ = ['equity_amer', 'equity_em', 'equity_eur', 'equity_pac','metals','commodities', 'volatilities','erc']
+
+        cumulative_returns_rest = (1 + portfolio_returns[list_]).cumprod()
+        cumulative_returns_rest = cumulative_returns_rest[cumulative_returns_rest.index >= '2006-01-01']
+        st.line_chart(cumulative_returns_rest, x_label="Year", y_label="cumulative return (in %)",height=455,width=700,use_container_width=False)
+        st.write("Note: Crypto is not in the graph because ...")
+
+
