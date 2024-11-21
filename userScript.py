@@ -6,7 +6,9 @@ config = {
     'rebalancing_frequency': "annual",
     'ANNUALIZATION_FACTOR': 12,
     'master_index': None,
-    'mode': 'gamma',} # 'fast' or 'gamma' for frontier optimization
+    'global_tickers': None,
+    'mode': 'gamma', # 'fast' or 'gamma' for frontier optimization
+    'gamma_linspace': np.linspace(-0.5, 1.5, 101)} # 101
 
 settings.update_settings(**config)
 
@@ -28,6 +30,7 @@ all_returns.fillna(0, inplace=True)
 
 masterIndex = all_returns.index
 settings.update_settings(master_index=masterIndex)
+settings.update_settings(global_tickers=list(all_returns.columns.get_level_values(1)))
 
 indexIterator = iteration_depth()
 spinner.message('Optimizing', 'yellow')
@@ -36,6 +39,7 @@ portfolio_keys = ['equity_amer', 'equity_em', 'equity_eur', 'equity_pac', 'metal
 portfolio_returns = pd.DataFrame(index=masterIndex, columns=[*portfolio_keys, 'erc'])
 
 portfolio_weights = []
+visual_data = {}
 
 start_time = time.time()
 for step in indexIterator:
@@ -79,6 +83,7 @@ for step in indexIterator:
     portfolio_returns.loc[evaluationIndex, portfolio_keys[6]] =       cryptoPortfolio.evaluate_performance(evaluationReturns[portfolio_keys[6]]).values
     portfolio_returns.loc[evaluationIndex, portfolio_keys[7]] = volatilitiesPortfolio.evaluate_performance(evaluationReturns[portfolio_keys[7]]).values
 
+
     # ERC Portfolio
     samplePortfolio = portfolio_returns.loc[optimizationIndex]
     evaluationPortfolio = portfolio_returns.loc[evaluationIndex]
@@ -89,6 +94,7 @@ for step in indexIterator:
 
     portfolio_returns.loc[evaluationIndex, 'erc'] = ercPortfolio.evaluate_performance(evaluationPortfolio[portfolio_keys]).values
 
+
     step_weights = []
     for portfolio, category in zip([*Portfolio.non_combined_portfolios, ercPortfolio], [*portfolio_keys, 'erc']):
         weights = portfolio.actual_weights
@@ -96,11 +102,55 @@ for step in indexIterator:
         step_weights.append(weights)
     portfolio_weights.append(pd.concat(step_weights, axis=1))
 
+    if settings.mode == 'gamma':
+        portfolios = [equityPortfolioAMER, equityPortfolioEM, equityPortfolioEUR, equityPortfolioPAC, metalsPortfolio, commoditiesPortfolio, cryptoPortfolio, volatilitiesPortfolio]
+        portfolio_names = portfolio_keys
+        for portfolio, portfolio_name in zip(portfolios, portfolio_names):
+            tickers = portfolio.ticker
+            frontier = portfolio.frontier
+
+            expected_returns = frontier['expected_return'].values
+            expected_variances = frontier['expected_variance'].values
+            expected_sharpes = frontier['expected_sharpe'].values
+            weights = frontier.loc[:, tickers].values
+            
+            for i, gamma in enumerate(settings.gamma_linspace):
+                row_data = [expected_returns[i], expected_variances[i], expected_sharpes[i]]
+                
+                weight_row = [np.nan] * len(settings.global_tickers)
+                for j, asset in enumerate(tickers):
+                    asset_index = settings.global_tickers.index(asset)
+                    weight_row[asset_index] = weights[i, j]
+                
+                row_data.extend(weight_row)
+                visual_data[(step, gamma, portfolio_name)] = row_data
+
     Portfolio.non_combined_portfolios = []
 
 portfolio_weights = pd.concat(portfolio_weights, axis=0).reindex(columns=all_returns.columns.append(pd.MultiIndex.from_product([['erc'], portfolio_keys])))
 portfolio_returns.to_csv(os.path.join(root, 'data', 'portfolio_returns.csv'))
 portfolio_weights.to_csv(os.path.join(root, 'data', 'portfolio_weights.csv'))
+
+if settings.mode == 'gamma':
+    # Create MultiIndex for rows
+    index = pd.MultiIndex.from_tuples(visual_data.keys(), names=["year", "gamma", "portfolio"])
+    
+    # Create MultiIndex for columns
+    columns = pd.MultiIndex.from_tuples(
+        [("metrics", "expected_return"), ("metrics", "expected_variance"), ("metrics", "expected_sharpe")] +
+        [("weights", asset) for asset in settings.global_tickers],
+        names=["category", "attribute"]
+    )
+
+    # Construct DataFrame
+    visual_df = pd.DataFrame.from_dict(visual_data, orient="index", columns=columns)
+    visual_df.index = index  # Set the MultiIndex
+    
+    # Reset the index, keeping 'year' as the index while flattening 'gamma' and 'portfolio'
+    visual_df.reset_index(level=["gamma", "portfolio"], inplace=True)  # Flatten all but 'year'
+    
+    # Save the DataFrame to a CSV file
+    visual_df.to_csv(f'data/efficient_frontiers.csv', index=True)  # Save with 'year' as the index
 
 spinner.erase()
 spinner.message('Done!\n', 'green')

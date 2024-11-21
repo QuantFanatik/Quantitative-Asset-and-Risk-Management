@@ -19,7 +19,9 @@ class Settings:
         self.rebalancing_frequency = 'annual'
         self.ANNUALIZATION_FACTOR = 12
         self.master_index = None
+        self.global_tickers = None
         self.mode = 'fast'
+        self.gamma_linspace = np.linspace(-0.5, 1.5, 101)
 
         self.validate()
 
@@ -522,7 +524,8 @@ class FastPortfolio():
 class GammaPortfolio():
     valid_types = ('markowitz', 'erc', 'max_sharpe', 'min_var')
     non_combined_portfolios = []
-    gamma_linspace = np.linspace(-0.5, 1.5, 101)
+    # gamma_linspace = settings.gamma_linspace
+    # print(gamma_linspace)
     
     def __init__(self, returns: pd.DataFrame | pd.Series, type: str='markowitz', names: list[str]=None, trust_markowitz: bool=False, resample: bool=False, target_gamma=None, main: bool=False):
         assert type.lower() in self.valid_types, f"Invalid type: {type}. Valid types are: {self.valid_types}"
@@ -560,7 +563,7 @@ class GammaPortfolio():
         """Assigns the closest gamma value from gamma_linspace to the provided target_gamma."""
         if gamma is None:
             return None
-        return min(self.gamma_linspace, key=lambda x: abs(x - gamma))
+        return min(settings.gamma_linspace, key=lambda x: abs(x - gamma))
 
     def get_optimal(self):
         self.frontier = self.get_frontier()
@@ -602,7 +605,7 @@ class GammaPortfolio():
         expected_sharpe[non_zero_variance] = (expected_returns_vector[non_zero_variance] / np.sqrt(expected_variances_vector[non_zero_variance]))
 
         data = {
-            'gamma': self.gamma_linspace if not singular else [singular],
+            'gamma': settings.gamma_linspace if not singular else [singular],
             'expected_return': expected_returns_vector,
             'expected_variance': expected_variances_vector,
             'expected_sharpe': expected_sharpe}
@@ -620,8 +623,8 @@ class GammaPortfolio():
         bounds = Bounds(0, 1)
 
         if not singular:
-            results = np.zeros((len(self.gamma_linspace), self.dim))
-            itterator = enumerate(self.gamma_linspace)
+            results = np.zeros((len(settings.gamma_linspace), self.dim))
+            itterator = enumerate(settings.gamma_linspace)
         else:
             itterator = [(0, singular)]
 
@@ -655,8 +658,8 @@ class GammaPortfolio():
         problem = cp.Problem(cp.Minimize(markowitz), constraints)
 
         if not singular:
-            results = np.zeros((len(self.gamma_linspace), self.dim))
-            itterator = enumerate(self.gamma_linspace)
+            results = np.zeros((len(settings.gamma_linspace), self.dim))
+            itterator = enumerate(settings.gamma_linspace)
         else:
             itterator = [(0, singular)]
 
