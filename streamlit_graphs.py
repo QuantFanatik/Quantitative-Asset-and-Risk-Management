@@ -13,7 +13,7 @@ file_path = os.path.join(root, 'data', 'efficient_frontiers.hdf')
 # Load the HDF file with caching, merge the separate files
 @st.cache_data
 def load_data():
-    files = [f for f in os.listdir('data') if f.startswith("efficient_frontiers_") and f.endswith(".hdf")]
+    files = [f for f in os.listdir('deprecated/data/') if f.startswith("efficient_frontiers_") and f.endswith(".hdf")]
     data_chunks = []
     
     for file in files:
