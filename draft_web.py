@@ -262,7 +262,7 @@ if choice == "Risk Profiling":
     gamma_known = st.radio("Do you know your Gamma?", ("Yes", "No"))
 
     if gamma_known == "Yes":
-        gamma_value = st.number_input("Please enter your Gamma value", min_value=0.0, max_value=None, value=1.0)
+        gamma_value = st.number_input("Please enter your Gamma value", min_value=-1.0, max_value=None, value=1.5)
         st.write(f"You have entered Gamma = {gamma_value}")
         st.session_state['gamma_value'] = gamma_value
     else:
@@ -271,27 +271,45 @@ if choice == "Risk Profiling":
         q1 = st.slider("On a scale from 1 (Very low risk tolerance) to 5 (Very high risk tolerance), how would you rate your risk tolerance?", 1, 5, 3)
         q2 = st.selectbox("What is your investment horizon?", ["Short-term (less than 3 years)", "Medium-term (3-7 years)", "Long-term (more than 7 years)"])
         q3 = st.selectbox("What is your primary investment goal?", ["Capital preservation", "Income generation", "Growth"])
+        q4 = st.selectbox("How would you react if your investment portfolio declined by 20% over a single month ?", ["Completly panicked", "Stressed but not panicked", "It happens"])
+        q5 = st.selectbox("How stable is your current income stream?", ["Very unstable", "Somewhat unstable", "Stable", "Very stable"])
 
         # Assign numerical values to the answers
         risk_tolerance_score = q1
 
         if q2 == "Short-term (less than 3 years)":
-            horizon_score = 1
+            horizon_score = 5
         elif q2 == "Medium-term (3-7 years)":
             horizon_score = 2
         else:
-            horizon_score = 3
+            horizon_score = 1
 
         if q3 == "Capital preservation":
             goal_score = 1
         elif q3 == "Income generation":
-            goal_score = 2
-        else:
             goal_score = 3
+        else:
+            goal_score = 5
+
+        if q4 == "Completly panicked":
+            goal_score_1 = 1
+        elif q4 == "Stressed but not panicked":
+            goal_score_1 = 3
+        else:
+            goal_score_1 = 5
+
+        if q5 == "Very unstable":
+            goal_score_2 = 1
+        elif q5 == "Somewhat unstable":
+            goal_score_2 = 3
+        elif q5 == "Stable":
+            goal_score_2 = 5
+        else:
+            goal_score_2 = 8
 
         # Calculate Gamma (this is a simplified example; adjust as needed)
-        gamma_score = risk_tolerance_score + horizon_score + goal_score
-        gamma_value = 10 / gamma_score  # Higher score implies lower gamma
+        gamma_score = risk_tolerance_score + horizon_score + goal_score +goal_score_1+ goal_score_2
+        gamma_value = (23 / gamma_score)*0.5  # Higher score implies lower gamma
 
         st.write(f"Based on your answers, your estimated Gamma is **{gamma_value:.2f}**")
         st.session_state['gamma_value'] = gamma_value
