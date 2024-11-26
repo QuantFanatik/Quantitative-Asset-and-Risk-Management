@@ -1,14 +1,14 @@
 from utilities import *
 
 config = {
-    'limit_year': None,
+    'limit_year': 2010,
     'data_frequency': "monthly",
     'rebalancing_frequency': "annual",
     'ANNUALIZATION_FACTOR': 12,
     'master_index': None,
     'global_tickers': None,
     'mode': 'gamma', # 'fast' or 'gamma' for frontier optimization
-    'gamma_linspace': np.linspace(-0.5, 1.5, 101)} # 101
+    'gamma_linspace': np.linspace(-0.5, 1.5, 3)} # 101
 
 settings.update_settings(**config)
 
@@ -40,6 +40,11 @@ portfolio_returns = pd.DataFrame(index=masterIndex, columns=[*portfolio_keys, 'e
 
 portfolio_weights = []
 visual_data = {}
+
+if settings.mode == 'gamma':
+    portfolio_gamma_collector = {}
+    portfolio_gamma_returns = pd.DataFrame(None, index=masterIndex, columns=pd.MultiIndex.from_product([settings.gamma_linspace, portfolio_keys]))
+    portfolio_erc_returns = pd.DataFrame(None, index=masterIndex, columns=pd.MultiIndex.from_product([settings.gamma_linspace, ['erc']]))
 
 start_time = time.time()
 for step in indexIterator:
@@ -84,28 +89,42 @@ for step in indexIterator:
     portfolio_returns.loc[evaluationIndex, portfolio_keys[7]] = volatilitiesPortfolio.evaluate_performance(evaluationReturns[portfolio_keys[7]]).values
 
 
-    # ERC Portfolio
-    samplePortfolio = portfolio_returns.loc[optimizationIndex]
-    evaluationPortfolio = portfolio_returns.loc[evaluationIndex]
-    # print(samplePortfolio[portfolio_keys])
-    # print(evaluationPortfolio[portfolio_keys])
-
-    ercPortfolio = Portfolio(samplePortfolio[portfolio_keys], 'erc', trust_markowitz=False, main=True)
-
-    portfolio_returns.loc[evaluationIndex, 'erc'] = ercPortfolio.evaluate_performance(evaluationPortfolio[portfolio_keys]).values
-
-
-    step_weights = []
-    for portfolio, category in zip([*Portfolio.non_combined_portfolios, ercPortfolio], [*portfolio_keys, 'erc']):
-        weights = portfolio.actual_weights
-        weights.columns = pd.MultiIndex.from_product([[category], weights.columns])
-        step_weights.append(weights)
-    portfolio_weights.append(pd.concat(step_weights, axis=1))
 
     if settings.mode == 'gamma':
         portfolios = [equityPortfolioAMER, equityPortfolioEM, equityPortfolioEUR, equityPortfolioPAC, metalsPortfolio, commoditiesPortfolio, cryptoPortfolio, volatilitiesPortfolio]
+        for gamma in settings.gamma_linspace:
+            for i, portfolio in enumerate(portfolios):
+                performance = portfolio.log_performance(evaluationReturns[portfolio_keys[i]])
+                portfolio_gamma_collector[(gamma, portfolio_keys[i])] = performance.loc[slice(None), gamma].values
+
+        collector = pd.DataFrame(portfolio_gamma_collector)
+        collector.columns = pd.MultiIndex.from_tuples(collector.columns, names=["gamma", "portfolio"])
+        collector.index = portfolio_returns.loc[evaluationIndex, slice(None)].index
+        portfolio_gamma_returns.loc[evaluationIndex] = collector
+
+        pseudo_frontier = pd.DataFrame(None, index=settings.gamma_linspace, columns=['expected_return', 'expected_variance', 'expected_sharpe', *portfolio_keys])
         portfolio_names = portfolio_keys
-        for portfolio, portfolio_name in zip(portfolios, portfolio_names):
+        for gamma in settings.gamma_linspace:
+            samplePortfolio = portfolio_gamma_returns.loc[optimizationIndex, gamma]
+            evaluationPortfolio = portfolio_gamma_returns.loc[evaluationIndex, gamma]
+
+            ercPortfolio = Portfolio(samplePortfolio[portfolio_keys], 'erc', trust_markowitz=False, main=True, erc_gamma_mode=gamma)
+            portfolio_erc_returns.loc[evaluationIndex, (gamma, 'erc')] = ercPortfolio.evaluate_performance(evaluationPortfolio[portfolio_keys]).values
+            
+            pseudo_frontier.loc[gamma, 'expected_return'] = ercPortfolio.expected_portfolio_return
+            pseudo_frontier.loc[gamma, 'expected_variance'] = ercPortfolio.expected_portfolio_varcov
+            sharpeRatio = ercPortfolio.expected_portfolio_return / np.sqrt(ercPortfolio.expected_portfolio_varcov) if ercPortfolio.expected_portfolio_varcov > 0 else 0
+            pseudo_frontier.loc[gamma, 'expected_sharpe'] = sharpeRatio
+
+            for i, asset in enumerate(portfolio_keys):
+                pseudo_frontier.loc[gamma, asset] = ercPortfolio.optimal_weights[i]
+
+        print(pseudo_frontier)
+        pseudo_portfolio = Pseudo(pseudo_frontier, portfolio_keys)
+        
+        local_tickers = [*settings.global_tickers, *portfolio_keys]
+
+        for portfolio, portfolio_name in zip([*portfolios, pseudo_portfolio], [*portfolio_keys, 'erc']):
             tickers = portfolio.ticker
             frontier = portfolio.frontier
 
@@ -117,25 +136,47 @@ for step in indexIterator:
             for i, gamma in enumerate(settings.gamma_linspace):
                 row_data = [expected_returns[i], expected_variances[i], expected_sharpes[i]]
                 
-                weight_row = [np.nan] * len(settings.global_tickers)
+                weight_row = [np.nan] * len(local_tickers)
                 for j, asset in enumerate(tickers):
-                    asset_index = settings.global_tickers.index(asset)
+                    asset_index = local_tickers.index(asset)
                     weight_row[asset_index] = weights[i, j]
                 
                 row_data.extend(weight_row)
                 visual_data[(step, gamma, portfolio_name)] = row_data
 
+    # ERC Portfolio with recommended gamma
+    samplePortfolio = portfolio_returns.loc[optimizationIndex]
+    evaluationPortfolio = portfolio_returns.loc[evaluationIndex]
+    ercPortfolio = Portfolio(samplePortfolio[portfolio_keys], 'erc', trust_markowitz=False, main=True, fast_erc=True)
+    portfolio_returns.loc[evaluationIndex, 'erc'] = ercPortfolio.evaluate_performance(evaluationPortfolio[portfolio_keys]).values
+                
+    step_weights = []
+    for portfolio, category in zip([*Portfolio.non_combined_portfolios, ercPortfolio], [*portfolio_keys, 'erc']):
+        weights = portfolio.actual_weights
+        weights.columns = pd.MultiIndex.from_product([[category], weights.columns])
+        step_weights.append(weights)
+    portfolio_weights.append(pd.concat(step_weights, axis=1))
+
     Portfolio.non_combined_portfolios = []
+
+
 
 portfolio_weights = pd.concat(portfolio_weights, axis=0).reindex(columns=all_returns.columns.append(pd.MultiIndex.from_product([['erc'], portfolio_keys])))
 portfolio_returns.to_csv(os.path.join(root, 'data', 'portfolio_returns.csv'))
 portfolio_weights.to_csv(os.path.join(root, 'data', 'portfolio_weights.csv'))
 
 if settings.mode == 'gamma':
+    pd.set_option('future.no_silent_downcasting', True)
+    portfolio_gamma_returns = pd.concat([portfolio_gamma_returns, portfolio_erc_returns], axis=1)
+    print(portfolio_gamma_returns.loc[portfolio_gamma_returns.index.year == 2007])
+    print(portfolio_gamma_returns.loc[portfolio_gamma_returns.index.year == 2007, 0.5])
+    portfolio_gamma_returns.replace([np.nan, np.inf, -np.inf], 0, inplace=True)
+    print((1+portfolio_gamma_returns).cumprod().loc[slice(None), 0.5])
+
     index = pd.MultiIndex.from_tuples(visual_data.keys(), names=["year", "gamma", "portfolio"])
     columns = pd.MultiIndex.from_tuples(
         [("metrics", "expected_return"), ("metrics", "expected_variance"), ("metrics", "expected_sharpe")] +
-        [("weights", asset) for asset in settings.global_tickers],
+        [("weights", asset) for asset in [*settings.global_tickers, *portfolio_keys]],
         names=["category", "attribute"])
 
     visual_df = pd.DataFrame.from_dict(visual_data, orient="index", columns=columns)
@@ -152,3 +193,8 @@ print((1 + portfolio_returns[portfolio_returns.index.year <= 2021]).cumprod().ta
 print(portfolio_evaluation(portfolio_returns, pd.Series(0, index=portfolio_returns.index))['SR'])
 print(portfolio_evaluation(portfolio_returns['erc'], pd.Series(0, index=portfolio_returns.index)))
 print(f"Optimization Runtime: {(time.time() - start_time):2f}s")
+
+
+
+
+# Save gamma returns

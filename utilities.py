@@ -527,7 +527,7 @@ class GammaPortfolio():
     # gamma_linspace = settings.gamma_linspace
     # print(gamma_linspace)
     
-    def __init__(self, returns: pd.DataFrame | pd.Series, type: str='markowitz', names: list[str]=None, trust_markowitz: bool=False, resample: bool=False, target_gamma=None, main: bool=False):
+    def __init__(self, returns: pd.DataFrame | pd.Series, type: str='markowitz', names: list[str]=None, trust_markowitz: bool=False, resample: bool=False, target_gamma=None, main: bool=False, erc_gamma_mode=None, fast_erc=False):
         assert type.lower() in self.valid_types, f"Invalid type: {type}. Valid types are: {self.valid_types}"
         #TODO: Attention! ERC portfolios use sample returns, not ex-ante expectations.
         if returns.isna().all().all() and not trust_markowitz:
@@ -535,6 +535,8 @@ class GammaPortfolio():
             self.trust_markowitz = True
         else:
             self.trust_markowitz = trust_markowitz
+        self.erc_gamma_mode = erc_gamma_mode
+        self.fast_erc = fast_erc
         self.gamma = self.assign_gamma(target_gamma)
         self.resample = resample
         self.type = type.lower()
@@ -555,7 +557,8 @@ class GammaPortfolio():
         if self.type == 'erc':
             self.frontier.loc[0, 'expected_return'] = self.expected_portfolio_return
             self.frontier.loc[0, 'expected_variance'] = self.expected_portfolio_varcov
-            self.frontier.loc[0, 'expected_sharpe'] = self.expected_portfolio_return / np.sqrt(self.expected_portfolio_varcov)
+            sharpeRatio = self.expected_portfolio_return / np.sqrt(self.expected_portfolio_varcov) if self.expected_portfolio_varcov > 0 else 0
+            self.frontier.loc[0, 'expected_sharpe'] = sharpeRatio
             for i, asset in enumerate(self.ticker):
                 self.frontier.loc[0, asset] = self.optimal_weights[i]
 
@@ -576,7 +579,7 @@ class GammaPortfolio():
             return self.frontier.loc[self.frontier['expected_sharpe'].idxmax(), self.ticker].values
         if self.type == 'erc':
             return self._fit_erc()
-
+        
     def get_frontier(self, singular=None):
         """Calculate the efficient frontier."""
         method = self._frontier_method()
@@ -674,14 +677,24 @@ class GammaPortfolio():
 
     def get_expected_returns(self) -> pd.DataFrame | pd.Series:
         #TODO: Attention! If extending beyond ERC, if statement must be updated.
-        if self.trust_markowitz and self.type == 'erc':
+        if self.fast_erc == True:
             internal_expectations = np.array([portfolio.expected_portfolio_return for portfolio in Portfolio.non_combined_portfolios])
+            return pd.Series(internal_expectations, index=self.returns.columns)
+        if self.trust_markowitz and self.type == 'erc':
+            internal_expectations = np.array([portfolio.frontier.loc[self.erc_gamma_mode, 'expected_return'] 
+                                              for portfolio in Portfolio.non_combined_portfolios])
             return pd.Series(internal_expectations, index=self.returns.columns)
         return self.returns.mean(axis=0)
     
     def get_expected_covariance(self) -> pd.DataFrame | pd.Series:
-        if self.trust_markowitz and self.type == 'erc':
-            internal_expectations = np.array([np.sqrt(portfolio.expected_portfolio_varcov) for portfolio in Portfolio.non_combined_portfolios])
+        if self.fast_erc == True:
+            internal_expectations = np.array([portfolio.expected_portfolio_varcov for portfolio in Portfolio.non_combined_portfolios])
+            sample_correlations = self.returns.corr().fillna(0)
+            varcov_matrix = np.outer(internal_expectations, internal_expectations) * sample_correlations
+            varcov_matrix = pd.DataFrame(varcov_matrix, index=self.returns.columns, columns=self.returns.columns)
+        elif self.trust_markowitz and self.type == 'erc':
+            internal_expectations = np.array([np.sqrt(portfolio.frontier.loc[self.erc_gamma_mode, 'expected_variance']) 
+                                              for portfolio in Portfolio.non_combined_portfolios])
             sample_correlations = self.returns.corr().fillna(0)
             varcov_matrix = np.outer(internal_expectations, internal_expectations) * sample_correlations
             varcov_matrix = pd.DataFrame(varcov_matrix, index=self.returns.columns, columns=self.returns.columns)
@@ -772,7 +785,7 @@ class GammaPortfolio():
             self.actual_returns = pd.Series(0, index=evaluationData.index)
             self.actual_weights = pd.DataFrame(0, index=evaluationData.index, columns=self.ticker)
             return pd.Series(0, index=evaluationData.index)
-        
+
         for singleSubperiodReturns in evaluationData.values:
             portfolioReturns = subperiodWeights[-1] @ singleSubperiodReturns
             portfolioWeights = subperiodWeights[-1] * (1 + singleSubperiodReturns) / (1 + portfolioReturns)
@@ -781,6 +794,25 @@ class GammaPortfolio():
         self.actual_returns = pd.Series(subperiodReturns, index=evaluationData.index)
         self.actual_weights = pd.DataFrame(subperiodWeights[:-1], index=evaluationData.index, columns=self.ticker)
         return pd.Series(subperiodReturns, index=evaluationData.index)
+    
+    def log_performance(self, evaluationData: pd.DataFrame | pd.Series) -> pd.Series:
+        all_gamma_returns = pd.DataFrame(None, index=evaluationData.index, columns=self.frontier.index)
+        for gamma in self.frontier.index:
+            portfolioWeights = self.frontier.loc[gamma, self.ticker].values
+            subperiodReturns = []
+            subperiodWeights = [portfolioWeights]
+
+            if evaluationData.isna().all().all() or (evaluationData == 0).all().all():
+                all_gamma_returns.values[:] = 0
+                return all_gamma_returns
+            
+            for singleSubperiodReturns in evaluationData.values:
+                portfolioReturns = subperiodWeights[-1] @ singleSubperiodReturns
+                portfolioWeights = subperiodWeights[-1] * (1 + singleSubperiodReturns) / (1 + portfolioReturns)
+                subperiodReturns.append(portfolioReturns)
+                subperiodWeights.append(portfolioWeights)
+            all_gamma_returns.loc[:, gamma] = pd.Series(subperiodReturns, index=evaluationData.index)
+        return all_gamma_returns
     
     def log_visuals(self):
         gammas = np.linspace(-0.5, 1.5, 101)
@@ -853,3 +885,9 @@ def split_large_csv(dataframe, base_path, base_filename="efficient_frontiers", m
         file_path = os.path.join(base_path, f"{base_filename}.csv")
         dataframe.to_csv(file_path, index=True)
         print("DataFrame saved as a single file.")
+
+
+class Pseudo():
+    def __init__(self, frontier: pd.DataFrame, ticker):
+        self.frontier = frontier
+        self.ticker = ticker
