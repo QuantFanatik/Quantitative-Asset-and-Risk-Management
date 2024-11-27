@@ -1,14 +1,14 @@
 from utilities import *
 
 config = {
-    'limit_year': 2010,
+    'limit_year': None,
     'data_frequency': "monthly",
     'rebalancing_frequency': "annual",
     'ANNUALIZATION_FACTOR': 12,
     'master_index': None,
     'global_tickers': None,
     'mode': 'gamma', # 'fast' or 'gamma' for frontier optimization
-    'gamma_linspace': np.linspace(-0.5, 1.5, 3)} # 101
+    'gamma_linspace': np.linspace(-0.5, 3, 151)} # 101
 
 settings.update_settings(**config)
 
@@ -91,7 +91,9 @@ for step in indexIterator:
 
 
     if settings.mode == 'gamma':
-        portfolios = [equityPortfolioAMER, equityPortfolioEM, equityPortfolioEUR, equityPortfolioPAC, metalsPortfolio, commoditiesPortfolio, cryptoPortfolio, volatilitiesPortfolio]
+        portfolios = [equityPortfolioAMER, equityPortfolioEM, equityPortfolioEUR, equityPortfolioPAC, 
+                      metalsPortfolio, commoditiesPortfolio, cryptoPortfolio, volatilitiesPortfolio]
+        # Portfolio returns for each gamma
         for gamma in settings.gamma_linspace:
             for i, portfolio in enumerate(portfolios):
                 performance = portfolio.log_performance(evaluationReturns[portfolio_keys[i]])
@@ -102,8 +104,9 @@ for step in indexIterator:
         collector.index = portfolio_returns.loc[evaluationIndex, slice(None)].index
         portfolio_gamma_returns.loc[evaluationIndex] = collector
 
+        # ERC Portfolio for each gamma
         pseudo_frontier = pd.DataFrame(None, index=settings.gamma_linspace, columns=['expected_return', 'expected_variance', 'expected_sharpe', *portfolio_keys])
-        portfolio_names = portfolio_keys
+
         for gamma in settings.gamma_linspace:
             samplePortfolio = portfolio_gamma_returns.loc[optimizationIndex, gamma]
             evaluationPortfolio = portfolio_gamma_returns.loc[evaluationIndex, gamma]
@@ -120,10 +123,9 @@ for step in indexIterator:
                 pseudo_frontier.loc[gamma, asset] = ercPortfolio.optimal_weights[i]
 
         print(pseudo_frontier)
+        # Adding ERC to the frontier data
         pseudo_portfolio = Pseudo(pseudo_frontier, portfolio_keys)
-        
         local_tickers = [*settings.global_tickers, *portfolio_keys]
-
         for portfolio, portfolio_name in zip([*portfolios, pseudo_portfolio], [*portfolio_keys, 'erc']):
             tickers = portfolio.ticker
             frontier = portfolio.frontier
@@ -142,7 +144,7 @@ for step in indexIterator:
                     weight_row[asset_index] = weights[i, j]
                 
                 row_data.extend(weight_row)
-                visual_data[(step, gamma, portfolio_name)] = row_data
+                visual_data[(f"{step + 2006}-01-01", gamma, portfolio_name)] = row_data
 
     # ERC Portfolio with recommended gamma
     samplePortfolio = portfolio_returns.loc[optimizationIndex]
@@ -159,31 +161,37 @@ for step in indexIterator:
 
     Portfolio.non_combined_portfolios = []
 
-
-
 portfolio_weights = pd.concat(portfolio_weights, axis=0).reindex(columns=all_returns.columns.append(pd.MultiIndex.from_product([['erc'], portfolio_keys])))
 portfolio_returns.to_csv(os.path.join(root, 'data', 'portfolio_returns.csv'))
 portfolio_weights.to_csv(os.path.join(root, 'data', 'portfolio_weights.csv'))
 
 if settings.mode == 'gamma':
     pd.set_option('future.no_silent_downcasting', True)
+    limit_year = settings.limit_year if settings.limit_year else 2021
+    base_path = os.path.join(root, "data")
+    visual_base_filename = "efficient_frontiers_gamma" # remove gamma to generate old files
+    return_base_filename = "portfolio_returns_gamma"
+
+    # Returns for each gamma
     portfolio_gamma_returns = pd.concat([portfolio_gamma_returns, portfolio_erc_returns], axis=1)
-    print(portfolio_gamma_returns.loc[portfolio_gamma_returns.index.year == 2007])
-    print(portfolio_gamma_returns.loc[portfolio_gamma_returns.index.year == 2007, 0.5])
-    portfolio_gamma_returns.replace([np.nan, np.inf, -np.inf], 0, inplace=True)
-    print((1+portfolio_gamma_returns).cumprod().loc[slice(None), 0.5])
+    portfolio_gamma_returns = portfolio_gamma_returns.loc["2006":str(limit_year)]
+    portfolio_gamma_returns = portfolio_gamma_returns.stack(level=0, future_stack=True)
+    portfolio_gamma_returns.index.names = ['date', 'gamma']
+    split_large_csv(portfolio_gamma_returns, base_path, return_base_filename, max_size_mb=50)
 
-    index = pd.MultiIndex.from_tuples(visual_data.keys(), names=["year", "gamma", "portfolio"])
+    index = pd.MultiIndex.from_tuples(visual_data.keys(), names=["date", "gamma", "portfolio"])
     columns = pd.MultiIndex.from_tuples(
-        [("metrics", "expected_return"), ("metrics", "expected_variance"), ("metrics", "expected_sharpe")] +
-        [("weights", asset) for asset in [*settings.global_tickers, *portfolio_keys]],
-        names=["category", "attribute"])
-
+        [("expected_return", ""), ("expected_variance", ""), ("expected_sharpe", "")] +
+        [(asset, "") for asset in [*settings.global_tickers, *portfolio_keys]],
+        names=["attribute", "detail"])
+    
     visual_df = pd.DataFrame.from_dict(visual_data, orient="index", columns=columns)
     visual_df.index = index
-    base_path = os.path.join(root, "data")
-    base_filename = "efficient_frontiers"
-    split_large_csv(visual_df, base_path, base_filename, max_size_mb=50)
+    visual_df = visual_df.reset_index(level=["portfolio"])
+    visual_df = visual_df.reset_index().set_index(["date", "gamma", "portfolio"])
+    visual_df.columns = [col[0] for col in visual_df.columns]
+    visual_df.dropna(how="all", inplace=True)
+    split_large_csv(visual_df, base_path, visual_base_filename, max_size_mb=50)
 
 spinner.erase()
 spinner.message('Done!\n', 'green')
@@ -194,7 +202,20 @@ print(portfolio_evaluation(portfolio_returns, pd.Series(0, index=portfolio_retur
 print(portfolio_evaluation(portfolio_returns['erc'], pd.Series(0, index=portfolio_returns.index)))
 print(f"Optimization Runtime: {(time.time() - start_time):2f}s")
 
+# Old saving backup
+# portfolio_weights = pd.concat(portfolio_weights, axis=0).reindex(columns=all_returns.columns.append(pd.MultiIndex.from_product([['erc'], portfolio_keys])))
+# portfolio_returns.to_csv(os.path.join(root, 'data', 'portfolio_returns.csv'))
+# portfolio_weights.to_csv(os.path.join(root, 'data', 'portfolio_weights.csv'))
 
+# pd.set_option('future.no_silent_downcasting', True)
+# base_path = os.path.join(root, "data")
+# visual_base_filename = "efficient_frontiers"
 
-
-# Save gamma returns
+# index = pd.MultiIndex.from_tuples(visual_data.keys(), names=["year", "gamma", "portfolio"])
+# columns = pd.MultiIndex.from_tuples(
+#     [("metrics", "expected_return"), ("metrics", "expected_variance"), ("metrics", "expected_sharpe")] +
+#     [("weights", asset) for asset in [*settings.global_tickers, *portfolio_keys]],
+#     names=["category", "attribute"])
+# visual_df = pd.DataFrame.from_dict(visual_data, orient="index", columns=columns)
+# visual_df.index = index
+# split_large_csv(visual_df, base_path, visual_base_filename, max_size_mb=50)

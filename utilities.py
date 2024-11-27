@@ -242,7 +242,7 @@ class FastPortfolio():
     valid_types = ('markowitz', 'erc', 'erc', 'max_sharpe', 'min_var')
     non_combined_portfolios = []
 
-    def __init__(self, returns: pd.DataFrame | pd.Series, type: str='markowitz', names: list[str]=None, trust_markowitz: bool=False, resample: bool=False, main: bool=False):
+    def __init__(self, returns: pd.DataFrame | pd.Series, type: str='markowitz', names: list[str]=None, trust_markowitz: bool=False, resample: bool=False, main: bool=False, fast_erc=False):
         assert type.lower() in self.valid_types, f"Invalid type: {type}. Valid types are: {self.valid_types}"
         assert main or not trust_markowitz, "Non-main portfolios cannot trust Markowitz."
         if returns.isna().all().all() and not trust_markowitz:
@@ -677,7 +677,7 @@ class GammaPortfolio():
 
     def get_expected_returns(self) -> pd.DataFrame | pd.Series:
         #TODO: Attention! If extending beyond ERC, if statement must be updated.
-        if self.fast_erc == True:
+        if self.fast_erc:
             internal_expectations = np.array([portfolio.expected_portfolio_return for portfolio in Portfolio.non_combined_portfolios])
             return pd.Series(internal_expectations, index=self.returns.columns)
         if self.trust_markowitz and self.type == 'erc':
@@ -687,7 +687,7 @@ class GammaPortfolio():
         return self.returns.mean(axis=0)
     
     def get_expected_covariance(self) -> pd.DataFrame | pd.Series:
-        if self.fast_erc == True:
+        if self.fast_erc:
             internal_expectations = np.array([portfolio.expected_portfolio_varcov for portfolio in Portfolio.non_combined_portfolios])
             sample_correlations = self.returns.corr().fillna(0)
             varcov_matrix = np.outer(internal_expectations, internal_expectations) * sample_correlations
@@ -865,11 +865,11 @@ def iteration_depth():
                 index += 1
     return indexIterator
 
-def split_large_csv(dataframe, base_path, base_filename="efficient_frontiers", max_size_mb=50):
+def split_large_csv(dataframe, base_path, base_filename="efficient_frontiers", max_size_mb=50, indexSet=True):
     import math
 
     temp_file_path = os.path.join(base_path, f"{base_filename}_temp.csv")
-    dataframe.to_csv(temp_file_path, index=True)
+    dataframe.to_csv(temp_file_path, index=indexSet)
     total_size_mb = os.path.getsize(temp_file_path) / (1024 * 1024)
     os.remove(temp_file_path)
 
@@ -879,13 +879,12 @@ def split_large_csv(dataframe, base_path, base_filename="efficient_frontiers", m
         for i in range(num_chunks):
             chunk = dataframe.iloc[i * chunk_size : (i + 1) * chunk_size]
             chunk_path = os.path.join(base_path, f"{base_filename}_part{i + 1}.csv")
-            chunk.to_csv(chunk_path, index=True)
+            chunk.to_csv(chunk_path, index=indexSet)
         print(f"DataFrame split into {num_chunks} chunks.")
     else:
         file_path = os.path.join(base_path, f"{base_filename}.csv")
-        dataframe.to_csv(file_path, index=True)
+        dataframe.to_csv(file_path, index=indexSet)
         print("DataFrame saved as a single file.")
-
 
 class Pseudo():
     def __init__(self, frontier: pd.DataFrame, ticker):
