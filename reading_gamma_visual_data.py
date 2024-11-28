@@ -1,5 +1,6 @@
 import pandas as pd
 import os
+import numpy as np
 
 def load_chunks(directory, base_filename):
     chunk_files = sorted(
@@ -19,3 +20,21 @@ frontiers.set_index(["gamma", "date", "portfolio"], inplace=True)
 
 print(returns)
 print(frontiers)
+
+
+# print(returns.loc[(3, slice(None)), 'erc'])
+# print(frontiers.loc[(slice(None), pd.DatetimeIndex('2012-01-01'), 'volatilities'), ['expected_return', 'expected_variance']])
+
+# print(returns.iloc[[23, 24, 25]])
+
+print((1 + returns.loc[(0.0366666666666667, slice(None))]).cumprod())
+# print(returns.iloc[(23, slice(None))].)
+
+# print(returns.describe())
+
+df = pd.read_csv('/Users/ivankhalin/Documents/code/MA3/Quantitative-Asset-and-Risk-Management/data/portfolio_returns.csv')
+df.dropna(inplace=True)
+df.set_index('DATE', inplace=True)
+print((1+df).cumprod()) 
+
+print(np.linspace(-0.5, 2, int(250+1)))

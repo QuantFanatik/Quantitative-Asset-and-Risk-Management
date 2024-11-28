@@ -18,13 +18,14 @@ frontiers_path = os.path.join(root, 'data', 'efficient_frontiers.csv')
 portfolio_returns = pd.read_csv(returns_path, index_col=0, parse_dates=True)
 portfolio_weights = pd.read_csv(weights_path, index_col=0, parse_dates=True, header=[0, 1])
 
-portfolio_frontiers = load_chunks(os.path.join(root, 'data'), 'efficient_frontiers')
+# portfolio_frontiers = load_chunks(os.path.join(root, 'data'), 'efficient_frontiers')
+portfolio_frontiers = pd.read_csv(frontiers_path, index_col=[0, 1, 2], header=[0, 1])
 new_columns = [(top, "" if "Unnamed" in bottom else bottom) for top, bottom in portfolio_frontiers.columns]
 portfolio_frontiers.columns = pd.MultiIndex.from_tuples(new_columns, names=["category", "attribute"])
 
 # Examples usage
-print(portfolio_returns[portfolio_returns.index.year >= 2006].head(2))
-print(portfolio_weights[portfolio_weights.index.year >= 2006].head(2))
+print(portfolio_returns[portfolio_returns.index.year >= 2010].head(2))
+print(portfolio_weights[portfolio_weights.index.year >= 2009].head(2))
 print(portfolio_weights.columns.get_level_values(0).unique())
 
 # Select the weights of only the american equity portfolio
@@ -38,11 +39,11 @@ print(portfolio_frontiers.index.get_level_values("portfolio").unique())
 # Example 2 - Select the efficient frontier for the metals portfolio in year 3
 year = 3
 gamma = slice(None) # All gamma values
-portfolio = "metals"
+portfolio = "erc"
 
 metals_data = portfolio_frontiers.loc[
     (year, gamma, portfolio), # Selecting rows
-    (slice(None), ['expected_return', 'expected_variance'])]  # Selecting columns
+    (slice(None), ['expected_return', 'expected_variance', ])]  # Selecting columns
 
 print(metals_data)
 

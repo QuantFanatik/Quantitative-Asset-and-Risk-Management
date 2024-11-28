@@ -8,8 +8,7 @@ config = {
     'master_index': None,
     'global_tickers': None,
     'mode': 'gamma', # 'fast' or 'gamma' for frontier optimization
-    'gamma_linspace': np.linspace(-0.5, 2, 3)} # 101
-# print(np.linspace(-0.5, 2, int(250/2+1)))
+    'gamma_linspace': np.linspace(-0.5, 2, 251)} # 251
 
 settings.update_settings(**config)
 

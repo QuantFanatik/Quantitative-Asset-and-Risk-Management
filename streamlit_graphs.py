@@ -1,159 +1,94 @@
-import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
+import plotly.express as px
+import pandas as pd
 import os
 
-# Streamlit title
-st.title('Efficient Frontiers Across Portfolios with Year Slider')
-
-# Path to the HDF5 file
-root = os.path.dirname(__file__)
-file_path = os.path.join(root, 'data', 'efficient_frontiers.hdf')
-
-# Load the HDF file with caching, merge the separate files
-@st.cache_data
-def load_data():
-    files = [f for f in os.listdir('deprecated/data/') if f.startswith("efficient_frontiers_") and f.endswith(".hdf")]
-    data_chunks = []
-    
-    for file in files:
-        chunk = pd.read_hdf(os.path.join('data', file))
-
-        # Extract `year` from the filename if it's not in columns or index
-        if 'year' not in chunk.index.names:
-            year = int(file.split('_')[-1].split('.')[0])  # Extract year from filename
-            chunk['year'] = year  # Add year as a column
-            chunk = chunk.set_index('year', append=True)  # Add year to the index
-
-        data_chunks.append(chunk)
-    
-    # Concatenate all chunks into a single DataFrame
-    merged_data = pd.concat(data_chunks).sort_index()
-    return merged_data
-
-# Generate efficient frontiers with Plotly slider for year control
-@st.cache_data
-def plot_efficient_frontiers_with_slider(data):
-    years = data.index.get_level_values("year").unique()
-    portfolios = data.index.get_level_values("portfolio").unique()
-
-    # Initialize Plotly figure
-    fig = go.Figure()
-
-    # Create a trace for each portfolio's efficient frontier for each year
-    for year in years:
-        yearly_data = data.xs(year, level="year")
-        
-        for portfolio in portfolios:
-            if portfolio not in yearly_data.index.get_level_values("portfolio").unique():
-                continue  # Skip if the portfolio is not present in the current year
-            
-            portfolio_data = yearly_data.xs(portfolio, level="portfolio")
-            x = portfolio_data[("metrics", "expected_variance")]
-            y = portfolio_data[("metrics", "expected_return")]
-
-            # Add trace for the portfolio's efficient frontier in this year
-            fig.add_trace(go.Scatter(
-                x=x,
-                y=y,
-                mode='lines+markers',
-                name=f"{portfolio} ({year})",
-                visible=(year == years[0]),  # Only the first year is visible initially
-                legendgroup=str(year),  # Group traces by year for easier toggling
-                hovertemplate=f"<b>Portfolio:</b> {portfolio}<br><b>Year:</b> {year}<br>Expected Return: %{{y}}<br>Variance: %{{x}}"
-            ))
-
-    # Define slider steps for each year
-    steps = []
-    for i, year in enumerate(years):
-        step = dict(
-            method="restyle",
-            args=["visible", [False] * len(fig.data)],  # Start by hiding all traces
-            label=str(year),
-        )
-        
-        # Make only traces for the current year visible
-        for j in range(i * len(portfolios), (i + 1) * len(portfolios)):
-            step["args"][1][j] = True  # Set visibility to True for current year's traces
-
-        steps.append(step)
-
-    # Add slider to the layout
-    sliders = [dict(
-        active=0,
-        currentvalue={"prefix": "Year: "},
-        pad={"t": 50},
-        steps=steps
-    )]
-
-    # Update layout with title and slider
-    fig.update_layout(
-        title="Efficient Frontiers for All Portfolios Over Time",
-        xaxis_title="Variance (Risk)",
-        yaxis_title="Expected Return",
-        sliders=sliders,
-        xaxis_range=[0, 0.05],  # Limit the x-axis between 0 and 0.1
-        yaxis_range=[-0.1, 0.2],  # Limit the y-axis between -0.1 and 0.2
-        width=800,
-        height=600
-    )
-
-    return fig
-
-# Filter ERC portfolio data for a specific gamma
-@st.cache_data
-def get_erc_data_for_gamma(data, gamma):
-    # Select ERC portfolio data and filter by gamma
-    erc_data = data.xs('ERC', level='portfolio')
-    gamma_data = erc_data.xs(gamma, level='gamma')
-
-    # Drop any columns with NaN across all years
-    gamma_data = gamma_data.dropna(axis=1, how='all')
-
-    # Select only the weight columns
-    weight_data = gamma_data.loc[:, "weights"]
-    
-    return weight_data
-
-# Generate stacked area chart for ERC portfolio weights over time with a Plotly slider for gamma
-@st.cache_data
-def plot_erc_composition(data):
-    # Select only gamma = 0 data
-    weight_data = get_erc_data_for_gamma(data, gamma=0)
-    years = data.index.get_level_values("year").unique()
-
-    # Initialize figure
-    fig = go.Figure()
-
-    # Create stacked area traces for each asset in the ERC portfolio for gamma = 0
-    for asset in weight_data.columns:
-        fig.add_trace(go.Scatter(
-            x=years,
-            y=weight_data[asset],
-            mode='lines',
-            stackgroup='one',  # Creates a stacked area chart
-            name=asset
-        ))
-
-    # Update layout
-    fig.update_layout(
-        title="ERC Portfolio Composition Over Time (Gamma = 0)",
-        xaxis_title="Year",
-        yaxis_title="Portfolio Weight",
-        width=800,
-        height=600
-    )
-
-    return fig
-
-# Main logic
 # Load data
-data = load_data()
+def load_chunks(directory, base_filename):
+    chunk_files = sorted(
+        [os.path.join(directory, f) for f in os.listdir(directory) if f.startswith(base_filename) and f.endswith('.csv')])
+    if not chunk_files:
+        raise FileNotFoundError(f"No chunk files found for base filename '{base_filename}' in '{directory}'")
+    all_chunks = [pd.read_csv(chunk, parse_dates=["date"]) for chunk in chunk_files]
+    return pd.concat(all_chunks, axis=0)
 
-# Generate the efficient frontier plot with a Plotly slider
-fig = plot_efficient_frontiers_with_slider(data)
-st.plotly_chart(fig)
+root = os.path.dirname(__file__)
 
-# Generate the simplified ERC composition plot with gamma = 0
-fig2 = plot_erc_composition(data)
-st.plotly_chart(fig2)
+returns = load_chunks(os.path.join(root, 'data'), 'portfolio_returns_gamma')
+returns.set_index(["gamma", "date"], inplace=True)
+
+frontiers = load_chunks(os.path.join(root, 'data'), 'efficient_frontiers_gamma')
+frontiers.set_index(["gamma", "date", "portfolio"], inplace=True)
+
+# @st.cache_data
+def slice_data(data: pd.DataFrame, gammas=None, dates: pd.DatetimeIndex = None, assets=None, portfolios=None) -> pd.DataFrame:
+    gammas = [gammas] if isinstance(gammas, (int, float)) else gammas
+    portfolios = [portfolios] if isinstance(portfolios, str) else portfolios
+
+    gamma_slice = data.index.get_level_values("gamma").intersection(gammas) if gammas is not None else slice(None)
+    dates_slice = data.index.get_level_values("date").intersection(dates) if dates is not None else slice(None)
+
+    if data.index.nlevels == 2:
+        print("User warning: returns have no asset level, ignoring asset slice") if assets is not None else None
+        portf_slice = data.columns.intersection(portfolios) if portfolios is not None else slice(None)
+        return data.loc[(gamma_slice, dates_slice), portf_slice]
+    
+    if data.index.nlevels == 3:
+        portf_slice = data.index.get_level_values("portfolio").intersection(portfolios) if portfolios is not None else slice(None)
+        asset_slice = data.columns.intersection(assets) if assets is not None else slice(None)
+        return data.loc[(gamma_slice, dates_slice, portf_slice), asset_slice]
+
+allowable = {"gamma": list(frontiers.index.get_level_values(0).unique()), 
+             "dates_frontier": pd.to_datetime(frontiers.index.get_level_values(1).unique()),
+             "dates_returns": pd.to_datetime(returns.index.get_level_values(1).unique()),
+             "portfolio":list(frontiers.index.get_level_values(2).unique()),
+             }
+
+
+# Example slicing
+gamma_slice = allowable["gamma"][120:]
+dates_slice = pd.date_range("2012-12-31", "2014-12-31")
+portfolio_slice = allowable["portfolio"][1:4]
+
+data = slice_data(returns, gammas=gamma_slice, dates=dates_slice, portfolios=portfolio_slice)
+print(data)
+
+data = slice_data(returns, gammas=3, dates=pd.date_range("2012-12-31", "2014-12-31"), portfolios="equity_amer")
+print(data)
+# print(select_by_years(data, [2013, 2014]))
+
+allowable["dates_frontier"] = [d.date() for d in pd.to_datetime(frontiers.index.get_level_values(1).unique())]
+allowable["dates_returns"] = [d.date() for d in pd.to_datetime(returns.index.get_level_values(1).unique())]
+
+# Streamlit App
+st.title("Dynamic Data Slicing and Visualization")
+
+# Returns Section
+st.header("Returns Slicing")
+gamma_returns = st.slider("Select Gamma Range (Returns)", min(allowable["gamma"]), max(allowable["gamma"]), (min(allowable["gamma"]), max(allowable["gamma"])))
+date_returns = st.slider("Select Date Range (Returns)", min(allowable["dates_returns"]), max(allowable["dates_returns"]), (min(allowable["dates_returns"]), max(allowable["dates_returns"])))
+
+returns_sliced = slice_data(
+    returns,
+    gammas=range(int(gamma_returns[0]), int(gamma_returns[1]) + 1),
+    dates=pd.date_range(date_returns[0], date_returns[1]),
+)
+
+st.write("Sliced Returns Data")
+st.dataframe(returns_sliced if not returns_sliced.empty else pd.DataFrame(columns=returns.columns))
+
+# Frontiers Section
+st.header("Frontiers Slicing")
+gamma_frontiers = st.slider("Select Gamma Range (Frontiers)", min(allowable["gamma"]), max(allowable["gamma"]), (min(allowable["gamma"]), max(allowable["gamma"])))
+date_frontiers = st.slider("Select Date Range (Frontiers)", min(allowable["dates_frontier"]), max(allowable["dates_frontier"]), (min(allowable["dates_frontier"]), max(allowable["dates_frontier"])))
+portfolio_frontiers = st.multiselect("Select Portfolios (Frontiers)", allowable["portfolio"], allowable["portfolio"])
+
+frontiers_sliced = slice_data(
+    frontiers,
+    gammas=range(int(gamma_frontiers[0]), int(gamma_frontiers[1]) + 1),
+    dates=pd.date_range(date_frontiers[0], date_frontiers[1]),
+    portfolios=portfolio_frontiers,
+)
+
+st.write("Sliced Frontiers Data")
+st.dataframe(frontiers_sliced if not frontiers_sliced.empty else pd.DataFrame(columns=frontiers.columns))
