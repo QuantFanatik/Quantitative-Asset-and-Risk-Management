@@ -242,7 +242,7 @@ class FastPortfolio():
     valid_types = ('markowitz', 'erc', 'erc', 'max_sharpe', 'min_var')
     non_combined_portfolios = []
 
-    def __init__(self, returns: pd.DataFrame | pd.Series, type: str='markowitz', names: list[str]=None, trust_markowitz: bool=False, resample: bool=False, main: bool=False, fast_erc=False):
+    def __init__(self, returns: pd.DataFrame | pd.Series, type: str='markowitz', risk_free_rate: float=0, names: list[str]=None, trust_markowitz: bool=False, resample: bool=False, main: bool=False, fast_erc=False):
         assert type.lower() in self.valid_types, f"Invalid type: {type}. Valid types are: {self.valid_types}"
         assert main or not trust_markowitz, "Non-main portfolios cannot trust Markowitz."
         if returns.isna().all().all() and not trust_markowitz:
@@ -251,6 +251,7 @@ class FastPortfolio():
         else:
             self.trust_markowitz = trust_markowitz
         self.resample = resample
+        self.rf = risk_free_rate
         self.type = type.lower()
         self.ticker = returns.columns
         self.returns = returns
@@ -383,12 +384,11 @@ class FastPortfolio():
     
     def _fit_max_sharpe(self) -> np.ndarray:
         if self.expected_returns.isna().all().all() or (self.expected_returns == 0).all().all():
-            # print("No data available for evaluation.")
             return np.zeros(self.dim)
         
         proxy_weights = cp.Variable(self.dim)
         objective = cp.Minimize(cp.quad_form(proxy_weights, cp.psd_wrap(self.expected_covariance)))
-        constraints = [proxy_weights @ self.expected_returns == 1, 
+        constraints = [proxy_weights @ (self.expected_returns - self.rf) == 1, 
                     proxy_weights >= 0]
         problem = cp.Problem(objective, constraints)
         problem.solve(warm_start=True)
@@ -401,7 +401,7 @@ class FastPortfolio():
     
     def _fit_max_sharpe_robust(self) -> np.ndarray:
         print("Sharpe Ratio optimization failed to find a solution. Attempting robust optimization.")
-        mu = self.expected_returns
+        mu = self.expected_returns - self.rf
         Sigma = self.expected_covariance
         kwargs = {'fun': lambda x: -np.dot(mu, x) / np.sqrt(np.dot(x, np.dot(Sigma, x))),
                 'jac': lambda x: -mu / np.sqrt(np.dot(x, np.dot(Sigma, x))) + np.dot(np.dot(mu, x), np.dot(x, Sigma)) / np.sqrt(np.dot(x, np.dot(Sigma, x))**3),
@@ -527,7 +527,7 @@ class GammaPortfolio():
     # gamma_linspace = settings.gamma_linspace
     # print(gamma_linspace)
     
-    def __init__(self, returns: pd.DataFrame | pd.Series, type: str='markowitz', names: list[str]=None, trust_markowitz: bool=False, resample: bool=False, target_gamma=None, main: bool=False, erc_gamma_mode=None, fast_erc=False):
+    def __init__(self, returns: pd.DataFrame | pd.Series, type: str='markowitz', risk_free_rate: float=0, names: list[str]=None, trust_markowitz: bool=False, resample: bool=False, target_gamma=None, main: bool=False, erc_gamma_mode=None, fast_erc=False):
         assert type.lower() in self.valid_types, f"Invalid type: {type}. Valid types are: {self.valid_types}"
         #TODO: Attention! ERC portfolios use sample returns, not ex-ante expectations.
         if returns.isna().all().all() and not trust_markowitz:
@@ -536,6 +536,7 @@ class GammaPortfolio():
         else:
             self.trust_markowitz = trust_markowitz
         self.erc_gamma_mode = erc_gamma_mode
+        self.rf = risk_free_rate
         self.fast_erc = fast_erc
         self.gamma = self.assign_gamma(target_gamma)
         self.resample = resample
@@ -605,7 +606,7 @@ class GammaPortfolio():
         
         expected_sharpe = np.zeros_like(expected_returns_vector)
         non_zero_variance = expected_variances_vector > 0
-        expected_sharpe[non_zero_variance] = (expected_returns_vector[non_zero_variance] / np.sqrt(expected_variances_vector[non_zero_variance]))
+        expected_sharpe[non_zero_variance] = ((expected_returns_vector[non_zero_variance] - self.rf) / np.sqrt(expected_variances_vector[non_zero_variance]))
 
         data = {
             'gamma': settings.gamma_linspace if not singular else [singular],
