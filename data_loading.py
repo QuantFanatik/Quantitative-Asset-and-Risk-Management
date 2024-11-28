@@ -20,6 +20,10 @@ static_data = load_data(get_path('Static.xlsx'))
 master_data_full = load_data(get_path('DS_RI_T_USD_M.xlsx'), cols=lambda x: x != 'NAME', transpose=True)
 cap_data = load_data(get_path('DS_MV_USD_M.xlsx'), cols=lambda x: x != 'NAME', transpose=True) * 1e6
 non_equities = load_data(get_path('data_YF/master_df.csv'), file_type='csv')
+rf_rate = pd.read_excel(get_path('Risk_Free_Rate.xlsx'), usecols=[1], engine='openpyxl') / 100
+rf_index = pd.date_range("2000-01-31", "2024-01-31", freq='M')
+rf_rate["date"] = rf_index
+rf_rate.set_index("date", inplace=True)
 
 equity_portfolios = {
     'equity_amer': ['AMER'],
@@ -60,3 +64,4 @@ cap_data.index.name = 'DATE'
 
 all_prices.to_csv(get_path('all_prices.csv'))
 cap_data.to_csv(get_path('cap_data.csv'))
+rf_rate.to_csv(get_path('rf_rate.csv'))
