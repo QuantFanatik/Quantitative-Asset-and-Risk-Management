@@ -956,7 +956,7 @@ if choice == "Performance":
         session_gamma = st.session_state.get('gamma_value', 0.5)  # Default gamma if not set
         gamma_value = st.slider(
             "Gamma Value",
-            min_value=0.1,
+            min_value=0.0,
             max_value=2.0,
             step=0.1,
             value=session_gamma,
