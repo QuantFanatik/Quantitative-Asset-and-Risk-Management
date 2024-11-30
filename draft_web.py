@@ -26,6 +26,21 @@ def load_chunks(directory, base_filename, parse_dates=None, date_column=None):
     data = pd.concat(all_chunks, axis=0)
     return data
 
+
+def get_path(filename):
+    """Construct full path for the data file."""
+    root = os.path.dirname(__file__)
+    return os.path.join(root, 'data', filename)
+
+def load_data(file, file_type='excel', sheet=0, cols=None, transpose=False):
+    """Load data from Excel or CSV, setting index to 'Date' for CSV."""
+    if file_type == 'excel':
+        data = pd.read_excel(file, sheet_name=sheet, usecols=cols, index_col=0, engine='openpyxl')
+    elif file_type == 'csv':
+        data = pd.read_csv(file, index_col="Date", parse_dates=True)
+    return data.transpose() if transpose else data
+
+
 root = os.path.dirname(__file__)
 
 @st.cache_data
@@ -77,10 +92,10 @@ master_df = pd.read_csv(master_path, index_col=0, parse_dates=True)
 # Help for making the web clean
 # --------------------------------------------------------------------------------------
 list_type_portfolio = ['equity_amer', 'equity_em', 'equity_eur', 'equity_pac',
-                       'metals', 'commodities', 'crypto', 'volatilities']
+                       'metals', 'commodities', 'crypto', 'volatilities', "erc"]
 
 list_clean_name = ['Metals', 'Commodities', 'Crypto', 'Volatilities',
-                   'North American Equities', 'Emerging Markets Equities', 'European Equities', 'Asia-Pacific Equities']
+                   'North American Equities', 'Emerging Markets Equities', 'European Equities', 'Asia-Pacific Equities', "ERC"]
 
 list_commodities = ["Lean_Hogs", "Crude_Oil", "Live_Cattle", "Soybeans", "Wheat", "Corn", "Natural_Gas"]
 list_crypto = ["Bitcoin", "Ethereum"]
@@ -88,17 +103,45 @@ list_metals = ["Gold", "Platinum", "Palladium", "Silver", "Copper"]
 list_volatilities = ["Russell_2000_RVX", "VVIX_VIX_of_VIX", "MOVE_bond_market_volatility",
                      "VXO-S&P_100_volatility", "Nasdaq_VXN", "VIX"]
 
+list_ERC =['equity_amer', 'equity_em', 'equity_eur', 'equity_pac',
+                       'metals', 'commodities', 'crypto', 'volatilities']
+
 df_commodities = master_df[list_commodities].pct_change()
 df_crypto = master_df[list_crypto].pct_change()
 df_metals = master_df[list_metals].pct_change()
 df_volatilities = master_df[list_volatilities].pct_change()
+
+
+
 corr_matrix = master_df.corr()
 
 list_data_equity_path = os.path.join(root, 'data', 'list_equity')
+
 list_data_equity_amer = pd.read_csv(os.path.join(list_data_equity_path, "equity_amer.csv"))
+list_data_equity_amer=list_data_equity_amer["ISIN"]
+
 list_data_equity_em = pd.read_csv(os.path.join(list_data_equity_path, "equity_em.csv"))
+list_data_equity_em = list_data_equity_em["ISIN"]
+
 list_data_equity_eur = pd.read_csv(os.path.join(list_data_equity_path, "equity_eur.csv"))
+list_data_equity_eur = list_data_equity_eur["ISIN"]
+
 list_data_equity_pac = pd.read_csv(os.path.join(list_data_equity_path, "equity_pac.csv"))
+list_data_equity_pac = list_data_equity_pac["ISIN"]
+
+master_data_full = load_data(get_path('DS_RI_T_USD_M.xlsx'), cols=lambda x: x != 'NAME', transpose=True)
+
+df_equity_amer = master_data_full[list_data_equity_amer]
+df_equity_em = master_data_full[list_data_equity_em]
+df_equity_eur = master_data_full[list_data_equity_eur]
+df_equity_pac = master_data_full[list_data_equity_pac]
+
+df_equity_amer = df_equity_amer.pct_change()
+df_equity_em = df_equity_em.pct_change()
+df_equity_eur = df_equity_eur.pct_change()
+df_equity_pac = df_equity_pac.pct_change()
+
+
 
 # Efficient Frontier Functions
 # ---------------------------------------------------------------------------------------
@@ -531,7 +574,7 @@ if choice == "Sub-Portfolio":
     portfolio_name = selection_to_portfolio_name[selection]
 
     # Load weights data for the selected portfolio
-    if selection in ["Metals", "Commodities", "Crypto", "Volatilities"]:
+    if selection in ["Metals", "Commodities", "Crypto", "Volatilities", "North American Equities", "Emerging Markets Equities", "European Equities", "Asia-Pacific Equities", "ERC"]:
         if selection == "Metals":
             sub_portfolio_list = list_metals
         elif selection == "Commodities":
@@ -540,12 +583,25 @@ if choice == "Sub-Portfolio":
             sub_portfolio_list = list_crypto
         elif selection == "Volatilities":
             sub_portfolio_list = list_volatilities
+        elif selection == "North American Equities":
+            sub_portfolio_list = list_data_equity_amer
+        elif selection == "Emerging Markets Equities":
+            sub_portfolio_list = list_data_equity_em
+        elif selection == "European Equities":
+            sub_portfolio_list = list_data_equity_eur
+        elif selection == "Asia-Pacific Equities":
+            sub_portfolio_list = list_data_equity_pac
+        elif selection == "ERC" :
+            sub_portfolio_list = list_ERC
     else:
         st.error("Sub-Portfolio Analysis for equities is not implemented in this section.")
         st.stop()
 
     weights_data = load_weights_data(sub_portfolio_list, portfolio_name, gamma_value)
-    returns_data = master_df[sub_portfolio_list].pct_change()
+    if selection in ["Metals", "Commodities", "Crypto", "Volatilities"]:
+        returns_data = master_df[sub_portfolio_list].pct_change()
+    elif selection in ["North American Equities", "Emerging Markets Equities", "European Equities", "Asia-Pacific Equities"]:
+        returns_data = master_data_full[sub_portfolio_list].pct_change()
 
     # Ensure the index is properly set to dates
     weights_data.index = pd.to_datetime(weights_data.index.get_level_values('date'))

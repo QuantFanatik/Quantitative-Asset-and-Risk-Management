@@ -20,7 +20,7 @@ frontiers.set_index(["gamma", "date", "portfolio"], inplace=True)
 
 rates = load_chunks(os.path.join(root, 'data'), 'rf_rate')
 
-print(rates)
+print(returns)
 
 print(frontiers)
 
