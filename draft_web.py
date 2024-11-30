@@ -738,10 +738,8 @@ if choice == "Sub-Portfolio":
 
         # Ensure weights are normalized to sum to 1
         if current_weights.sum() > 1.0:
-            print(current_weights.sum())
-            current_weights = current_weights / current_weights.sum()
 
-            print(current_weights.sum(), "\n-------")
+            current_weights = current_weights / current_weights.sum()
 
 
         # Store the updated weights
