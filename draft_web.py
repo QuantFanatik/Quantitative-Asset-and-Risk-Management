@@ -718,7 +718,7 @@ if choice == "Sub-Portfolio":
     prev_date = 0
     for date in returns_data.index:
         #print(date, date.month)
-        if date.month == 1 and date.year <= 2021 and date.year != prev_date:#and date.day == 1:  # Check if the date is January 1st
+        if date.month == 1 and date.year <= 2021 and date.year != prev_date:
             #print(date, date.month,"\n --------")
             new_date = pd.Timestamp(date).replace(day=1)
             current_weights = weights_monthly.loc[new_date]
@@ -733,9 +733,11 @@ if choice == "Sub-Portfolio":
 
         # Update weights dynamically
         current_weights = (current_weights * (1 + returns_data.loc[date].fillna(0))) / portfolio_value
-
-        # Ensure all weights are non-negative
         current_weights = current_weights.clip(lower=0)
+        # Ensure weights are normalized to sum to 1
+        if current_weights.sum() > 1.0:
+            current_weights = current_weights / current_weights.sum()
+
 
         # Re-normalize weights to sum to 1
         if current_weights.sum() > 0:
@@ -926,7 +928,6 @@ if choice == "Final Portfolio":
 # ***********************************************************************************************************
 # Performance
 # ***********************************************************************************************************
-
 if choice == "Performance":
     st.title("Performance")
 
@@ -955,9 +956,9 @@ if choice == "Performance":
         session_gamma = st.session_state.get('gamma_value', 0.5)  # Default gamma if not set
         gamma_value = st.slider(
             "Gamma Value",
-            min_value=0.0,
+            min_value=0.1,
             max_value=2.0,
-            step=0.02,
+            step=0.1,
             value=session_gamma,
             help="Adjust the risk preference using the gamma slider."
         )
@@ -1063,7 +1064,6 @@ if choice == "Performance":
         # Reset index to make 'Portfolio' a column
         metrics_df = metrics_df.reset_index().rename(columns={'index': 'Portfolio'})
 
-
         # Define the highlight function
         def highlight_metrics_column(s):
             better_high = {
@@ -1106,7 +1106,6 @@ if choice == "Performance":
 
             return colors
 
-
         # Create mapping for whether higher is better (excluding 'Portfolio')
         metrics_columns = metrics_df.columns.difference(['Portfolio'])
         styled_metrics = metrics_df.style.apply(
@@ -1125,31 +1124,31 @@ if choice == "Performance":
 
         # Add custom CSS for better UI
         custom_styles = """
-            <style>
-                .metrics-table th {
-                    position: sticky;
-                    top: 0;
-                    background-color: #1a1a1a;
-                    color: white;
-                    text-align: center;
-                }
-                .metrics-table td {
-                    text-align: center;
-                    padding: 8px;
-                }
-                .metrics-table tr:hover {
-                    background-color: #333333;
-                }
-                .metrics-table {
-                    border-collapse: collapse;
-                    width: 100%;
-                    margin: 0 auto;
-                }
-                .metrics-table td, .metrics-table th {
-                    border: 1px solid #555;
-                }
-            </style>
-            """
+        <style>
+            .metrics-table th {
+                position: sticky;
+                top: 0;
+                background-color: #1a1a1a;
+                color: white;
+                text-align: center;
+            }
+            .metrics-table td {
+                text-align: center;
+                padding: 8px;
+            }
+            .metrics-table tr:hover {
+                background-color: #333333;
+            }
+            .metrics-table {
+                border-collapse: collapse;
+                width: 100%;
+                margin: 0 auto;
+            }
+            .metrics-table td, .metrics-table th {
+                border: 1px solid #555;
+            }
+        </style>
+        """
 
         # Render the styled DataFrame to HTML without the index
         html = styled_metrics.to_html(classes="metrics-table", escape=False, index=False)
