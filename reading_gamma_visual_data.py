@@ -88,12 +88,12 @@ erc_portfolio_columns = [
         "metals", "commodities", "crypto", "volatilities"
     ]
 # Filter data for gamma = -0.5
-gamma_value = -0.5
+gamma_value = 1.0
 if gamma_value in frontiers.index.get_level_values('gamma'):
     # Access volatilities data for the specific gamma value
-    Wheights = frontiers.loc[(gamma_value, slice(None), 'erc'), :]
+    Wheights = frontiers.loc[(gamma_value, slice(None), 'equity_amer'), :]
     print(f"Volatilities for gamma = {gamma_value}:")
-    print(Wheights[erc_portfolio_columns])
+    print(Wheights["US61174X1090"]).loc[gamma_value, "2007-01-01", "equity_amer"])
 else:
     print(f"No data found for gamma = {gamma_value}")
 

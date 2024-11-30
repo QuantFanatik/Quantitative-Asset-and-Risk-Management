@@ -710,21 +710,38 @@ if choice == "Sub-Portfolio":
     # Combine returns and weights into a single DataFrame
     dynamic_weights = pd.DataFrame(index=returns_data.index, columns=sub_portfolio_list)
     current_weights = weights_monthly.iloc[0] if not weights_monthly.empty else pd.Series(1 / len(sub_portfolio_list), index=sub_portfolio_list)
-
-    # Update weights dynamically using returns
+    prev_date = 0
     for date in returns_data.index:
-        if date in weights_monthly.index:  # Rebalance on rebalancing dates
-            current_weights = weights_monthly.loc[date]
-        elif date.month == 1 and date.day == 1:  # Reset weights every January 1st
-            if date in weights_monthly.index:  # Ensure weights exist for this date
-                current_weights = weights_monthly.loc[date]
-            else:
-                # If no specific weights are available for January 1st, initialize equally
-                current_weights = pd.Series(1 / len(sub_portfolio_list), index=sub_portfolio_list)
+        #print(date, date.month)
+        if date.month == 1 and date.year <= 2021 and date.year != prev_date:#and date.day == 1:  # Check if the date is January 1st
+            #print(date, date.month,"\n --------")
+            new_date = pd.Timestamp(date).replace(day=1)
+            current_weights = weights_monthly.loc[new_date]
+            #print(current_weights)
 
+        # Adjust weights dynamically based on the previous weights and returns
+        aligned_weights = current_weights.reindex(returns_data.columns).fillna(0)
+        aligned_returns = returns_data.loc[date].reindex(aligned_weights.index).fillna(0)
+
+        # Calculate portfolio value
         portfolio_value = (current_weights * (1 + returns_data.loc[date].fillna(0))).sum()
+
+        # Update weights dynamically
         current_weights = (current_weights * (1 + returns_data.loc[date].fillna(0))) / portfolio_value
+
+        # Ensure all weights are non-negative
+        current_weights = current_weights.clip(lower=0)
+
+        # Re-normalize weights to sum to 1
+        if current_weights.sum() > 0:
+            current_weights = current_weights / current_weights.sum()
+        else:
+            # If all weights are zero, reset to equal weights
+            current_weights = pd.Series(1 / len(sub_portfolio_list), index=sub_portfolio_list)
+
+        # Store the updated weights
         dynamic_weights.loc[date] = current_weights
+        prev_date= date.year
 
     # Fill missing weights forward
     dynamic_weights.fillna(method='ffill', inplace=True)
