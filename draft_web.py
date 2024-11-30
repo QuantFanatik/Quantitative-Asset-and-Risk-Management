@@ -886,7 +886,6 @@ if choice == "Optimal Portfolio":
 # ***********************************************************************************************************
 if choice == "Performance":
     st.title("Performance")
-    st.subheader("Cumulative Returns and Drawdown")
 
     list_portfolios = [
         'equity_amer', 'equity_em', 'equity_eur', 'equity_pac',
@@ -895,7 +894,7 @@ if choice == "Performance":
     selected_portfolios = []
 
     # Portfolio Selection
-    st.write("Select portfolios to display:")
+    st.subheader("Select portfolios to display", divider="gray")
     rows = [list_portfolios[i:i + 4] for i in range(0, len(list_portfolios), 4)]
     for row in rows:
         cols = st.columns(len(row))
@@ -932,17 +931,21 @@ if choice == "Performance":
             cumulative_returns_selected.index >= '2006-01-01'
         ]
 
+        st.write("")
+        st.subheader("Cumulative Returns and Drawdown", divider="gray")
+
         # Plot cumulative returns
-        st.write("### Cumulative Returns")
+        st.write("#### Cumulative Returns")
         st.line_chart(cumulative_returns_selected)
 
         # Calculate drawdown
-        st.write("### Drawdown")
+        st.write("#### Drawdown")
         cumulative_returns_max = cumulative_returns_selected.cummax()
         drawdowns = (cumulative_returns_selected - cumulative_returns_max) / cumulative_returns_max
         st.line_chart(drawdowns)
 
         # Correlation Heatmap
+        st.write("")
         st.subheader("Correlation Heatmap", divider="gray")
         # Compute the correlation matrix of the selected portfolios
         correlation_matrix = log_returns_gamma[selected_portfolios].corr()
@@ -965,7 +968,8 @@ if choice == "Performance":
         st.pyplot(fig)
 
         # Calculate performance metrics
-        st.write("### Summary Statistics")
+        st.write("")
+        st.subheader("Summary Statistics", divider="gray")
         metrics_data = {}
         for portfolio in selected_portfolios:
             # Use log returns
