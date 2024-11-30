@@ -932,7 +932,14 @@ if choice == "Performance":
         'equity_amer', 'equity_em', 'equity_eur', 'equity_pac',
         'metals', 'commodities', 'volatilities', 'crypto', 'erc'
     ]
-    selected_portfolios = []
+
+    # Initialize session state for selected portfolios
+    if "selected_portfolios" not in st.session_state:
+        st.session_state["selected_portfolios"] = []
+
+    # Button to display all portfolios
+    if st.button("Display All"):
+        st.session_state["selected_portfolios"] = list_portfolios
 
     # Portfolio Selection
     st.subheader("Select portfolios to display", divider="gray")
@@ -941,12 +948,16 @@ if choice == "Performance":
         cols = st.columns(len(row))
         for col, portfolio in zip(cols, row):
             with col:
-                toggle = st.checkbox(portfolio, value=False)
-                if toggle:
-                    selected_portfolios.append(portfolio)
+                toggle = st.checkbox(
+                    portfolio,
+                    value=portfolio in st.session_state["selected_portfolios"]
+                )
+                if toggle and portfolio not in st.session_state["selected_portfolios"]:
+                    st.session_state["selected_portfolios"].append(portfolio)
+                elif not toggle and portfolio in st.session_state["selected_portfolios"]:
+                    st.session_state["selected_portfolios"].remove(portfolio)
 
-    if st.button("Display All"):
-        selected_portfolios = list_portfolios
+    selected_portfolios = st.session_state["selected_portfolios"]
 
     if selected_portfolios:
         # Gamma slider
@@ -959,6 +970,9 @@ if choice == "Performance":
             value=session_gamma,
             help="Adjust the risk preference using the gamma slider."
         )
+
+        # Save the gamma value in session state
+        st.session_state["gamma_value"] = gamma_value
 
         # Load portfolio returns
         portfolio_returns = load_portfolio_returns()
