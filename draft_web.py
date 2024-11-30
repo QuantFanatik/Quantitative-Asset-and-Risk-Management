@@ -667,6 +667,11 @@ if choice == "Sub-Portfolio":
 
     portfolio_name = selection_to_portfolio_name[selection]
 
+    if portfolio_name == "crypto":
+        limit = '2014-01-01'
+    else:
+        limit = '2006-01-01'
+
     # Define sub-portfolio list
     sub_portfolio_list = []
     if selection in ["Metals", "Commodities", "Crypto", "Volatilities"]:
@@ -688,8 +693,8 @@ if choice == "Sub-Portfolio":
         returns_data.index = pd.to_datetime(returns_data.index)
 
         # Filter data starting from 1 January 2006
-        weights_data = weights_data[weights_data.index >= pd.Timestamp('2006-01-01')]
-        returns_data = returns_data[returns_data.index >= pd.Timestamp('2006-01-01')]
+        weights_data = weights_data[weights_data.index >= pd.Timestamp(limit)]
+        returns_data = returns_data[returns_data.index >= pd.Timestamp(limit)]
 
     except Exception as e:
         st.error(f"Error loading data: {e}")
@@ -717,7 +722,7 @@ if choice == "Sub-Portfolio":
             #print(date, date.month,"\n --------")
             new_date = pd.Timestamp(date).replace(day=1)
             current_weights = weights_monthly.loc[new_date]
-            #print(current_weights)
+            print(current_weights)
 
         # Adjust weights dynamically based on the previous weights and returns
         aligned_weights = current_weights.reindex(returns_data.columns).fillna(0)
@@ -747,7 +752,7 @@ if choice == "Sub-Portfolio":
     dynamic_weights.fillna(method='ffill', inplace=True)
 
     # Use select_slider for available dates
-    available_dates = dynamic_weights.index[dynamic_weights.index >= pd.Timestamp('2006-01-01')].to_pydatetime()
+    available_dates = dynamic_weights.index[dynamic_weights.index >= pd.Timestamp(limit)].to_pydatetime()
     if not available_dates.size:
         st.error("No data available from January 2006 onwards.")
         st.stop()
