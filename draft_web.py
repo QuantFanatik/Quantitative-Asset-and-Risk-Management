@@ -510,7 +510,7 @@ if choice == "Data Exploration":
         st.pyplot(fig)
 
         # Efficient Frontier for the selected portfolio
-        st.subheader("Efficient Frontier")
+        st.subheader("Efficient Frontier", divider="gray")
         frontier_data = load_efficient_frontier_data()
         rf_rate_data = load_rates_data()
 
@@ -597,12 +597,11 @@ if choice == "Data Exploration":
         st.write("")
         st.subheader("Additional Information", divider="gray")
         st.markdown(f"**Number of Equities**: {nb_eq}")
-        st.write("")
         st.markdown("**Equities Composition**:")
         st.write(list_isin)
 
         # Efficient Frontier for equity portfolios
-        st.subheader("Efficient Frontier")
+        st.subheader("Efficient Frontier", divider="gray")
         frontier_data = load_efficient_frontier_data()
         rf_rate_data = load_rates_data()
 
@@ -647,7 +646,6 @@ if choice == "Sub-Portfolio":
 
     st.title("Sub-Portfolio")
     selection = st.selectbox("Choose portfolio class", list_clean_name, index=0)
-    st.info("We have to optimize each class of portfolio before using Markowitz in our global portfolio")
 
     # Mapping selection to portfolio name
     selection_to_portfolio_name = {
@@ -776,7 +774,6 @@ if choice == "Sub-Portfolio":
 if choice == "Optimal Portfolio":
 
     st.title("Portfolio Optimization")
-    st.info("Optimize the global portfolio using the efficient frontier data.")
 
     # Map the ERC portfolio to relevant sub-portfolio columns
     erc_portfolio_columns = [
