@@ -56,12 +56,53 @@ def load_efficient_frontier_data():
     data.sort_index(inplace=True)
     return data
 
+@st.cache_data
 def load_weights_data(sub_portfolio_list, sub_portfolio, gamma_value):
-    data = load_chunks(os.path.join(root, 'data'), 'efficient_frontiers_gamma', parse_dates=["date"])
-    data.set_index(["gamma", "date", "portfolio"], inplace=True)
-    data = data.loc[(gamma_value, slice(None), sub_portfolio), :]
-    return data[sub_portfolio_list]
+    """
+    Load and filter weights data for a specific sub-portfolio and gamma value.
 
+    Parameters:
+    - sub_portfolio_list: List of asset names or identifiers (e.g., ISINs).
+    - sub_portfolio: Sub-portfolio name (e.g., 'crypto', 'equity_amer').
+    - gamma_value: Gamma value to filter the data.
+
+    Returns:
+    - Filtered DataFrame with weights data.
+    """
+    # Load and preprocess data
+    data = load_chunks(os.path.join(root, 'data'), 'efficient_frontiers_gamma')
+    data.set_index(["gamma", "date", "portfolio"], inplace=True)
+
+    # Ensure data is sorted for proper filtering
+    data.sort_index(inplace=True)
+
+    if sub_portfolio in ["metals", "commodities", "crypto", "volatilities", "erc"]:
+        # Original method for simpler portfolios
+        filtered_data = data.loc[(gamma_value, slice(None), sub_portfolio), :]
+        return filtered_data[sub_portfolio_list]
+
+    else:
+        # For equities and other formatted portfolios
+        if gamma_value in data.index.get_level_values('gamma'):
+            filtered_data = data.loc[(gamma_value, slice(None), sub_portfolio), :]
+
+            # Extract the weights using sub_portfolio_list (e.g., ISINs)
+            formatted_columns = [col for col in sub_portfolio_list if col in filtered_data.columns]
+            if not formatted_columns:
+                raise ValueError("No matching columns found between data and sub_portfolio_list.")
+
+            # Select only the relevant columns
+            filtered_data = filtered_data[formatted_columns]
+
+            # Ensure the weights are in a usable format (e.g., non-negative, normalized if required)
+            # Normalize weights to sum to 1 if they don't already
+            filtered_data = filtered_data.div(filtered_data.sum(axis=1), axis=0)
+
+            return filtered_data
+        else:
+            raise ValueError(f"No data found for gamma = {gamma_value} and sub_portfolio = {sub_portfolio}.")
+
+@st.cache_data
 def load_rates_data():
     data = load_chunks(os.path.join(root, 'data'), 'rf_rate')
     # Check for 'date' or 'Date' column
@@ -92,10 +133,10 @@ master_df = pd.read_csv(master_path, index_col=0, parse_dates=True)
 # Help for making the web clean
 # --------------------------------------------------------------------------------------
 list_type_portfolio = ['equity_amer', 'equity_em', 'equity_eur', 'equity_pac',
-                       'metals', 'commodities', 'crypto', 'volatilities', "erc"]
+                       'metals', 'commodities', 'crypto', 'volatilities']
 
 list_clean_name = ['Metals', 'Commodities', 'Crypto', 'Volatilities',
-                   'North American Equities', 'Emerging Markets Equities', 'European Equities', 'Asia-Pacific Equities', "ERC"]
+                   'North American Equities', 'Emerging Markets Equities', 'European Equities', 'Asia-Pacific Equities']
 
 list_commodities = ["Lean_Hogs", "Crude_Oil", "Live_Cattle", "Soybeans", "Wheat", "Corn", "Natural_Gas"]
 list_crypto = ["Bitcoin", "Ethereum"]
@@ -110,6 +151,7 @@ df_commodities = master_df[list_commodities].pct_change()
 df_crypto = master_df[list_crypto].pct_change()
 df_metals = master_df[list_metals].pct_change()
 df_volatilities = master_df[list_volatilities].pct_change()
+
 
 
 
@@ -128,6 +170,7 @@ list_data_equity_eur = list_data_equity_eur["ISIN"]
 
 list_data_equity_pac = pd.read_csv(os.path.join(list_data_equity_path, "equity_pac.csv"))
 list_data_equity_pac = list_data_equity_pac["ISIN"]
+
 
 master_data_full = load_data(get_path('DS_RI_T_USD_M.xlsx'), cols=lambda x: x != 'NAME', transpose=True)
 
@@ -274,7 +317,7 @@ def plot_efficient_frontier(data, selected_portfolio, selected_date, gamma_value
 
     # Update the layout
     fig.update_layout(
-        title=f"Efficient Frontier and CML for {selected_portfolio.capitalize()} on {selected_date.date()}",
+        title=f"Efficient Frontier for {selected_portfolio.capitalize()} on {selected_date.date()}",
         xaxis_title="Standard Deviation (Risk)",
         yaxis_title="Expected Return",
         width=800,
@@ -287,9 +330,63 @@ def plot_efficient_frontier(data, selected_portfolio, selected_date, gamma_value
 # ***********************************************************************************************************
 with st.sidebar:
     st.title("Portfolio Optimization")
-    choice = st.radio("Steps", ["Risk Profiling", "Data Exploration", "Sub-Portfolio", "Optimal Portfolio", "Performance"])
-    st.info("This tool uses equal risk contributions method to select optimal weights for each "
-            "type of asset classes. Then, we use Markowitz optimization to choose an optimal portfolio.")
+    choice = st.radio("Steps", ["Introduction", "Risk Profiling", "Data Exploration", "Sub-Portfolio", "Optimal Portfolio", "Performance"])
+
+# ***********************************************************************************************************
+# Introduction
+# ***********************************************************************************************************
+if choice == "Introduction":
+
+    st.title("Portfolio Optimization Web Application")
+    st.subheader("An Intelligent Tool for Building Optimal Investment Portfolios")
+
+    st.markdown("""
+    Welcome to our portfolio optimization web application! This platform is designed to help investors construct efficient portfolios tailored to their risk preferences.
+    """)
+
+    st.markdown("### Steps Involved in the Project")
+    st.markdown("""
+    Our approach consists of the following main steps:
+    """)
+
+    # Step 1: Risk Assessment
+    st.markdown("#### 1. Risk Assessment")
+    st.write("""
+    The first step involves determining your **risk aversion parameter (Gamma)**. 
+    - You can either directly input your gamma value if you know it.
+    - Alternatively, you will be asked a series of questions about your financial goals, investment horizon, and risk tolerance to calculate your gamma value automatically.
+    """)
+
+    # Step 2: Asset Class Summary
+    st.markdown("#### 2. Asset Class Summary")
+    st.write("""
+    Once your risk aversion is set, we will provide a **quick overview of the key asset classes** available for investment:
+    - **Metals**: Precious and industrial metals such as Gold, Silver, and Copper.
+    - **Crypto**: Cryptocurrencies like Bitcoin and Ethereum.
+    - **Volatilities**: Volatility indices like the VIX  
+    - **Commodities**: Agricultural and energy commodities like Crude Oil and Natural Gas.
+    - **Equities**: Regional equity markets, including North America, Europe, Emerging Markets, and Asia-Pacific.
+
+    """)
+
+    # Step 3: Portfolio Optimization
+    st.markdown("#### 3. Portfolio Optimization")
+    st.write("""
+    The optimization process consists of two main stages:
+    1. **Mean-Variance Optimization (MVO)**: 
+        - For each asset class, we perform a **mean-variance optimization** to find an efficient portfolio within that class.
+    2. **Equal Risk Contribution (ERC) Portfolio**:
+        - We construct a global portfolio where each sub-portfolio (optimized for its respective asset class) contributes equally to the total portfolio risk.
+    """)
+
+    # Step 4: Out-of-Sample Performance Analysis
+    st.markdown("#### 4. Out-of-Sample Performance Analysis")
+    st.write("""
+    Finally, we evaluate the performance of the optimized portfolio using **out-of-sample data**. This includes:
+    - Analyzing the cumulative returns and drawdowns of the final portfolio.
+    - Comparing the performance of the global portfolio to its individual sub-portfolios.
+    """)
+
 
 # ***********************************************************************************************************
 # Risk Profiling
@@ -300,66 +397,53 @@ if choice == "Risk Profiling":
     gamma_known = st.radio("Do you know your Gamma?", ("Yes", "No"))
 
     if gamma_known == "Yes":
-        gamma_value = st.number_input("Please enter your Gamma value", min_value=-1.0, max_value=None, value=1.5)
-        st.write(f"You have entered Gamma = {gamma_value}")
+        gamma_value = st.number_input("Please enter your Gamma value", min_value=-0.5, max_value=None, value=0.5)
 
     else:
         st.write("We will ask you some questions to help determine your Gamma.")
+
         # Questions to define the Gamma
-        q1 = st.slider("On a scale from 1 (Very low risk tolerance) to 5 (Very high risk tolerance), how would you rate your risk tolerance?", 1, 5, 3)
-        q2 = st.selectbox("What is your investment horizon?", ["Short-term (less than 3 years)", "Medium-term (3-7 years)", "Long-term (more than 7 years)"])
-        q3 = st.selectbox("What is your primary investment goal?", ["Capital preservation", "Income generation", "Growth"])
-        q4 = st.selectbox("How would you react if your investment portfolio declined by 20% over a single month?", ["Completely panicked", "Stressed but not panicked", "It happens"])
-        q5 = st.selectbox("How stable is your current income stream?", ["Very unstable", "Somewhat unstable", "Stable", "Very stable"])
+        risk_tolerance_score = st.slider(
+            "On a scale from 1 (Very low risk tolerance) to 5 (Very high risk tolerance), how would you rate your risk tolerance?",
+            0, 3, 5
+        )
 
-        # Assign numerical values to the answers
-        risk_tolerance_score = q1
+        investment_horizon = st.selectbox(
+            "What is your investment horizon?",
+            ["Short-term (less than 3 years)", "Medium-term (3-7 years)", "Long-term (more than 7 years)"]
+        )
 
-        if q2 == "Short-term (less than 3 years)":
-            horizon_score = 5
-        elif q2 == "Medium-term (3-7 years)":
-            horizon_score = 2
-        else:
-            horizon_score = 1
+        primary_goal = st.selectbox(
+            "What is your primary investment goal?",
+            ["Capital preservation", "Income generation", "Growth"]
+        )
 
-        if q3 == "Capital preservation":
-            goal_score = 1
-        elif q3 == "Income generation":
-            goal_score = 3
-        else:
-            goal_score = 5
+        reaction_to_decline = st.selectbox(
+            "How would you react if your investment portfolio declined by 20% over a single month?",
+            ["Completely panicked", "Stressed but not panicked", "It happens"]
+        )
 
-        if q4 == "Completely panicked":
-            goal_score_1 = 1
-        elif q4 == "Stressed but not panicked":
-            goal_score_1 = 3
-        else:
-            goal_score_1 = 5
+        income_stability = st.selectbox(
+            "How stable is your current income stream?",
+            ["Very unstable", "Somewhat unstable", "Stable", "Very stable"]
+        )
 
-        if q5 == "Very unstable":
-            goal_score_2 = 1
-        elif q5 == "Somewhat unstable":
-            goal_score_2 = 3
-        elif q5 == "Stable":
-            goal_score_2 = 5
-        else:
-            goal_score_2 = 8
+        # Assign scores
+        goal_score = {"Capital preservation": 0, "Income generation": 1.5, "Growth": 3}[primary_goal]
+        decline_score = {"Completely panicked": 0, "Stressed but not panicked": 1.5, "It happens": 3}[reaction_to_decline]
+        income_score = {"Very unstable": 0, "Somewhat unstable": 1, "Stable": 1.5, "Very stable": 3}[income_stability]
 
-        # Calculate Gamma (this is a simplified example; adjust as needed)
-        gamma_score = risk_tolerance_score + horizon_score + goal_score + goal_score_1 + goal_score_2
-        gamma_value = (23 / gamma_score) * 0.5  # Higher score implies lower gamma
+        # Calculate Gamma
+        gamma_score = risk_tolerance_score + goal_score + decline_score + income_score
+        gamma_value = (gamma_score / 15) * 0.5  # Normalized to a range
 
-        st.write(f"Based on your answers, your estimated Gamma is **{gamma_value:.4f}**")
+    # Adjust Gamma value to nearest available Gamma in the dataset
+    gamma_value = get_nearest_gamma(gamma_value, np.linspace(-0.5, 2, 251))
+    st.write(f"Based on your answers, your estimated Gamma is **{gamma_value:.4f}**")
 
-    # Adjust gamma_value to the nearest gamma in the dataset
-    # Load the data to get gamma values
-    frontier_data = load_efficient_frontier_data()
-    gamma_values_in_data = get_gamma_values(frontier_data)
-    gamma_value = get_nearest_gamma(gamma_value, gamma_values_in_data)
-    st.write(f"Your Gamma value has been adjusted to the nearest available gamma: **{gamma_value:.4f}**")
+    # Save Gamma to session state
     st.session_state['gamma_value'] = gamma_value
 
-    st.success("Your Gamma value has been set. You can proceed to other sections.")
 
 # ***********************************************************************************************************
 # Data Exploration
@@ -480,7 +564,12 @@ if choice == "Data Exploration":
             mean = str(round(float(returns_gamma["equity_amer"].mean() * 12 * 100), 2))
             vol = str(round(float(returns_gamma["equity_amer"].std() * np.sqrt(12) * 100), 2))
             nb_eq = int(list_data_equity_amer.shape[0])
-            list_data_equity_amer.rename(columns={"equity_amer": "ISIN"}, inplace=True)
+            list_isin = list_data_equity_amer
+
+        elif selection == "North American Equities":
+            mean = str(round(float(returns_gamma["equity_amer"].mean() * 12 * 100), 2))
+            vol = str(round(float(returns_gamma["equity_amer"].std() * np.sqrt(12) * 100), 2))
+            nb_eq = int(list_data_equity_amer.shape[0])
             list_isin = list_data_equity_amer
 
         elif selection == "Emerging Markets Equities":
@@ -549,11 +638,18 @@ if choice == "Data Exploration":
 # ***********************************************************************************************************
 if choice == "Sub-Portfolio":
 
+    # Portfolio types and clean names
+    list_type_portfolio = ['equity_amer', 'equity_em', 'equity_eur', 'equity_pac',
+                           'metals', 'commodities', 'crypto', 'volatilities']
+    list_clean_name = ['Metals', 'Commodities', 'Crypto', 'Volatilities',
+                       'North American Equities', 'Emerging Markets Equities',
+                       'European Equities', 'Asia-Pacific Equities']
+
     st.title("Sub-Portfolio")
     selection = st.selectbox("Choose portfolio class", list_clean_name, index=0)
     st.info("We have to optimize each class of portfolio before using Markowitz in our global portfolio")
 
-    # Map the selection to the portfolio name used in the DataFrame
+    # Mapping selection to portfolio name
     selection_to_portfolio_name = {
         "Metals": "metals",
         "Commodities": "commodities",
@@ -573,53 +669,69 @@ if choice == "Sub-Portfolio":
 
     portfolio_name = selection_to_portfolio_name[selection]
 
-    # Load weights data for the selected portfolio
-    if selection in ["Metals", "Commodities", "Crypto", "Volatilities", "North American Equities", "Emerging Markets Equities", "European Equities", "Asia-Pacific Equities", "ERC"]:
-        if selection == "Metals":
-            sub_portfolio_list = list_metals
-        elif selection == "Commodities":
-            sub_portfolio_list = list_commodities
-        elif selection == "Crypto":
-            sub_portfolio_list = list_crypto
-        elif selection == "Volatilities":
-            sub_portfolio_list = list_volatilities
-        elif selection == "North American Equities":
-            sub_portfolio_list = list_data_equity_amer
-        elif selection == "Emerging Markets Equities":
-            sub_portfolio_list = list_data_equity_em
-        elif selection == "European Equities":
-            sub_portfolio_list = list_data_equity_eur
-        elif selection == "Asia-Pacific Equities":
-            sub_portfolio_list = list_data_equity_pac
-        elif selection == "ERC" :
-            sub_portfolio_list = list_ERC
-    else:
-        st.error("Sub-Portfolio Analysis for equities is not implemented in this section.")
-        st.stop()
-
-    weights_data = load_weights_data(sub_portfolio_list, portfolio_name, gamma_value)
+    # Define sub-portfolio list
+    sub_portfolio_list = []
     if selection in ["Metals", "Commodities", "Crypto", "Volatilities"]:
-        returns_data = master_df[sub_portfolio_list].pct_change()
-    elif selection in ["North American Equities", "Emerging Markets Equities", "European Equities", "Asia-Pacific Equities"]:
-        returns_data = master_data_full[sub_portfolio_list].pct_change()
+        sub_portfolio_list = globals()[f"list_{portfolio_name}"]
+    elif selection in ["North American Equities", "Emerging Markets Equities",
+                       "European Equities", "Asia-Pacific Equities"]:
+        sub_portfolio_list = globals()[f"list_data_{portfolio_name}"]
 
-    # Ensure the index is properly set to dates
-    weights_data.index = pd.to_datetime(weights_data.index.get_level_values('date'))
-    returns_data.index = pd.to_datetime(returns_data.index)
+    # Load weights and returns data
+    try:
+        weights_data = load_weights_data(sub_portfolio_list, portfolio_name, gamma_value)
+        if selection in ["Metals", "Commodities", "Crypto", "Volatilities"]:
+            returns_data = master_df[sub_portfolio_list].pct_change()
+        else:
+            returns_data = master_data_full[sub_portfolio_list].pct_change()
+
+        # Ensure proper date formatting
+        weights_data.index = pd.to_datetime(weights_data.index.get_level_values('date'))
+        returns_data.index = pd.to_datetime(returns_data.index)
+
+        # Filter data starting from 1 January 2006
+        weights_data = weights_data[weights_data.index >= pd.Timestamp('2006-01-01')]
+        returns_data = returns_data[returns_data.index >= pd.Timestamp('2006-01-01')]
+
+    except Exception as e:
+        st.error(f"Error loading data: {e}")
+        st.stop()
 
     # Align data to the first day of the month
     rebalancing_dates = weights_data.index.sort_values()
-    weights_monthly = weights_data.loc[rebalancing_dates].resample('MS').ffill()
+    weights_monthly = weights_data.resample('MS').ffill()
     returns_data_bom = returns_data.resample('MS').first()
 
+    # Initialize weights if no weights available for the first date
+    if not weights_monthly.empty and not weights_monthly.index[0] == returns_data.index[0]:
+        first_weights = weights_monthly.iloc[0]
+        first_date = returns_data.index[0]
+        weights_monthly.loc[first_date] = first_weights
+        weights_monthly = weights_monthly.sort_index()
+
     # Combine returns and weights into a single DataFrame
-    dynamic_weights = pd.DataFrame(index=returns_data_bom.index, columns=sub_portfolio_list)
-    for date in returns_data_bom.index:
-        if date in weights_monthly.index:
-            dynamic_weights.loc[date] = weights_monthly.loc[date]
+    dynamic_weights = pd.DataFrame(index=returns_data.index, columns=sub_portfolio_list)
+    current_weights = weights_monthly.iloc[0] if not weights_monthly.empty else pd.Series(1 / len(sub_portfolio_list), index=sub_portfolio_list)
+
+    # Update weights dynamically using returns
+    for date in returns_data.index:
+        if date in weights_monthly.index:  # Rebalance on rebalancing dates
+            current_weights = weights_monthly.loc[date]
+        elif date.month == 1 and date.day == 1:  # Reset weights every January 1st
+            if date in weights_monthly.index:  # Ensure weights exist for this date
+                current_weights = weights_monthly.loc[date]
+            else:
+                # If no specific weights are available for January 1st, initialize equally
+                current_weights = pd.Series(1 / len(sub_portfolio_list), index=sub_portfolio_list)
+
+        portfolio_value = (current_weights * (1 + returns_data.loc[date].fillna(0))).sum()
+        current_weights = (current_weights * (1 + returns_data.loc[date].fillna(0))) / portfolio_value
+        dynamic_weights.loc[date] = current_weights
+
+    # Fill missing weights forward
     dynamic_weights.fillna(method='ffill', inplace=True)
 
-    # Use select_slider for first day of monthly dates
+    # Use select_slider for available dates
     available_dates = dynamic_weights.index[dynamic_weights.index >= pd.Timestamp('2006-01-01')].to_pydatetime()
     if not available_dates.size:
         st.error("No data available from January 2006 onwards.")
@@ -641,6 +753,11 @@ if choice == "Sub-Portfolio":
     # Retrieve weight allocation for the selected date
     latest_data = dynamic_weights.loc[closest_date]
 
+    # Check if weights are valid (non-empty and normalized)
+    if latest_data.empty or latest_data.sum() == 0:
+        st.warning("No valid weights available for the selected date.")
+        st.stop()
+
     # Create the pie chart
     fig = px.pie(
         values=latest_data.values,
@@ -653,9 +770,8 @@ if choice == "Sub-Portfolio":
     st.subheader("Weight Allocation Over Time")
     st.bar_chart(dynamic_weights)
 
-
 # ***********************************************************************************************************
-# Portfolio Optimization
+# Optimal Portfolio
 # ***********************************************************************************************************
 if choice == "Optimal Portfolio":
 
@@ -673,22 +789,63 @@ if choice == "Optimal Portfolio":
         st.warning("Please set your Gamma in the 'Risk Profiling' section.")
         st.stop()
 
-    # Load the efficient frontier data
-    frontier_data = load_efficient_frontier_data()
+    # Define sub-portfolio list for ERC
+    sub_portfolio_list = erc_portfolio_columns
 
-    # Filter data for the selected gamma and ERC portfolio
+    # Load weights and returns data
     try:
-        portfolio_data = frontier_data.loc[(gamma_value, slice(None), "erc"), erc_portfolio_columns]
-    except KeyError:
-        st.error(f"No data available for gamma {gamma_value} and ERC portfolio.")
+        weights_data = load_weights_data(sub_portfolio_list, "erc", gamma_value)
+        returns_data = load_portfolio_returns().xs(gamma_value, level='gamma')
+
+        # Ensure proper date formatting
+        weights_data.index = pd.to_datetime(weights_data.index.get_level_values('date'))
+        returns_data.index = pd.to_datetime(returns_data.index)
+
+        # Filter data starting from 1 January 2006
+        weights_data = weights_data[weights_data.index >= pd.Timestamp('2006-01-01')]
+        returns_data = returns_data[returns_data.index >= pd.Timestamp('2006-01-01')]
+
+    except Exception as e:
+        st.error(f"Error loading data: {e}")
         st.stop()
 
-    # Ensure the index is properly set to datetime and align to the first day of the month
-    portfolio_data.index = pd.to_datetime(portfolio_data.index.get_level_values("date"))
-    portfolio_monthly = portfolio_data.resample('MS').first()
+    # Align data to the first day of the month
+    rebalancing_dates = weights_data.index.sort_values()
+    weights_monthly = weights_data.resample('MS').ffill()
+    returns_data_bom = returns_data.resample('MS').first()
 
-    # Use select_slider for first day of monthly dates
-    available_dates = portfolio_monthly.index[portfolio_monthly.index >= pd.Timestamp('2006-01-01')].to_pydatetime()
+    # Initialize weights if no weights available for the first date
+    if not weights_monthly.empty and not weights_monthly.index[0] == returns_data.index[0]:
+        first_weights = weights_monthly.iloc[0]
+        first_date = returns_data.index[0]
+        weights_monthly.loc[first_date] = first_weights
+        weights_monthly = weights_monthly.sort_index()
+
+    # Combine returns and weights into a single DataFrame
+    dynamic_weights = pd.DataFrame(index=returns_data.index, columns=sub_portfolio_list)
+    current_weights = weights_monthly.iloc[0] if not weights_monthly.empty else pd.Series(1 / len(sub_portfolio_list), index=sub_portfolio_list)
+
+    # Update weights dynamically using returns
+    # Update weights dynamically using returns
+    for date in returns_data.index:
+        if date in weights_monthly.index:  # Rebalance on rebalancing dates
+            current_weights = weights_monthly.loc[date]
+        elif date.month == 1 and date.day == 1:  # Reset weights every January 1st
+            if date in weights_monthly.index:  # Ensure weights exist for this date
+                current_weights = weights_monthly.loc[date]
+            else:
+                # If no specific weights are available for January 1st, initialize equally
+                current_weights = pd.Series(1 / len(sub_portfolio_list), index=sub_portfolio_list)
+
+        portfolio_value = (current_weights * (1 + returns_data.loc[date].fillna(0))).sum()
+        current_weights = (current_weights * (1 + returns_data.loc[date].fillna(0))) / portfolio_value
+        dynamic_weights.loc[date] = current_weights
+
+    # Fill missing weights forward
+    dynamic_weights.fillna(method='ffill', inplace=True)
+
+    # Use select_slider for available dates
+    available_dates = dynamic_weights.index[dynamic_weights.index >= pd.Timestamp('2006-01-01')].to_pydatetime()
     if not available_dates.size:
         st.error("No data available from January 2006 onwards.")
         st.stop()
@@ -701,35 +858,30 @@ if choice == "Optimal Portfolio":
     selected_date = pd.Timestamp(selected_date)
 
     # Filter data for the selected date
-    closest_date = portfolio_monthly.index.asof(selected_date)
+    closest_date = dynamic_weights.index.asof(selected_date)
     if pd.isna(closest_date):
         st.error(f"No data available for the selected date ({selected_date.strftime('%Y-%m-%d')}).")
         st.stop()
 
-    latest_data = portfolio_monthly.loc[closest_date]
+    # Retrieve weight allocation for the selected date
+    latest_data = dynamic_weights.loc[closest_date]
 
-    # Create dynamic weights DataFrame
-    dynamic_weights = pd.DataFrame(index=portfolio_monthly.index, columns=erc_portfolio_columns)
-    dynamic_weights.loc[closest_date] = latest_data
+    # Check if weights are valid (non-empty and normalized)
+    if latest_data.empty or latest_data.sum() == 0:
+        st.warning("No valid weights available for the selected date.")
+        st.stop()
 
-    # Fill forward any missing weights
-    dynamic_weights.fillna(method='ffill', inplace=True)
-
-    # Extract weights for the selected date
-    latest_weights = latest_data[erc_portfolio_columns]
-    latest_weights = latest_weights[latest_weights > 0]  # Keep only positive weights
-
-    # Create the pie chart for weight allocation
+    # Create the pie chart
     fig = px.pie(
-        values=latest_weights.values,
-        names=latest_weights.index,
+        values=latest_data.values,
+        names=latest_data.index,
         title=f"Weight Allocation on {closest_date.strftime('%Y-%m-%d')}"
     )
     st.plotly_chart(fig)
 
     # Display weight allocation over time
     st.subheader("Weight Allocation Over Time")
-    st.area_chart(dynamic_weights)
+    st.bar_chart(dynamic_weights)
 
 
 # ***********************************************************************************************************
@@ -952,7 +1104,5 @@ if choice == "Performance":
         # Add custom styles and table HTML
         st.markdown(custom_styles, unsafe_allow_html=True)
         st.markdown(html, unsafe_allow_html=True)
-
-        st.info("Hover over the rows to highlight them. Metrics are color-coded for easier comparison.")
     else:
         st.warning("Please select at least one portfolio to view its performance.")
