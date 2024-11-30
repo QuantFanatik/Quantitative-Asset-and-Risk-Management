@@ -722,29 +722,27 @@ if choice == "Sub-Portfolio":
             #print(date, date.month,"\n --------")
             new_date = pd.Timestamp(date).replace(day=1)
             current_weights = weights_monthly.loc[new_date]
-            print(current_weights)
+            #print(current_weights)
 
         # Adjust weights dynamically based on the previous weights and returns
         aligned_weights = current_weights.reindex(returns_data.columns).fillna(0)
         aligned_returns = returns_data.loc[date].reindex(aligned_weights.index).fillna(0)
 
+        current_weights = current_weights.clip(lower=0)
         # Calculate portfolio value
         portfolio_value = (current_weights * (1 + returns_data.loc[date].fillna(0))).sum()
 
         # Update weights dynamically
         current_weights = (current_weights * (1 + returns_data.loc[date].fillna(0))) / portfolio_value
-        current_weights = current_weights.clip(lower=0)
+
+
         # Ensure weights are normalized to sum to 1
         if current_weights.sum() > 1.0:
+            print(current_weights.sum())
             current_weights = current_weights / current_weights.sum()
 
+            print(current_weights.sum(), "\n-------")
 
-        # Re-normalize weights to sum to 1
-        if current_weights.sum() > 0:
-            current_weights = current_weights / current_weights.sum()
-        else:
-            # If all weights are zero, reset to equal weights
-            current_weights = pd.Series(1 / len(sub_portfolio_list), index=sub_portfolio_list)
 
         # Store the updated weights
         dynamic_weights.loc[date] = current_weights
@@ -790,6 +788,7 @@ if choice == "Sub-Portfolio":
 
     # Display weight allocation over time
     st.subheader("Weight Allocation Over Time")
+    dynamic_weights = dynamic_weights.div(dynamic_weights.sum(axis=1), axis=0).fillna(0)  # Ensure normalization
     st.bar_chart(dynamic_weights)
 
 # ***********************************************************************************************************
