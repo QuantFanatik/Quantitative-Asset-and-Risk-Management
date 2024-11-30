@@ -854,7 +854,7 @@ if choice == "Final Portfolio":
             # print(date, date.month,"\n --------")
             new_date = pd.Timestamp(date).replace(day=1)
             current_weights = weights_monthly.loc[new_date]
-            print(current_weights)
+
 
         # Adjust weights dynamically based on the previous weights and returns
         aligned_weights = current_weights.reindex(returns_data.columns).fillna(0)
