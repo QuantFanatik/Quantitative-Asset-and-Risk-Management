@@ -966,7 +966,7 @@ if choice == "Performance":
             "Gamma Value",
             min_value=0.0,
             max_value=2.0,
-            step=0.1,
+            step=0.01,
             value=session_gamma,
             help="Adjust the risk preference using the gamma slider."
         )
