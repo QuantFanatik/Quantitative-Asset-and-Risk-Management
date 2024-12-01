@@ -6,9 +6,37 @@ import plotly.express as px
 import plotly.graph_objects as go
 import matplotlib.pyplot as plt
 import os
+import gc
+
+pd.set_option('future.no_silent_downcasting', True)
+root = os.path.dirname(__file__)
 
 # Data Loading Functions
+# @st.cache_data
+def optimize_floats(df, robust=False):
+    if robust:
+        return df.astype('float16')
+    if isinstance(df, pd.Series):
+        if df.dtype in ['float64', 'float32']:
+            if df.max() <= 65000 and df.min() >= -65000:
+                return df.astype('float16')
+            else:
+                # print(f"Warning: {df.name} has values outside the range of float16.")
+                return df.astype('float32')  # Fallback to float32 if out of range
+        else:
+            return df 
+    elif isinstance(df, pd.DataFrame):
+        for col in df.select_dtypes(include=['float']).columns:
+            if df[col].max() <= 65000 and df[col].min() >= -65000:
+                df[col] = df[col].astype('float16')
+            else:
+                # print(f"Warning: {col} has values outside the range of float16.")
+                df[col] = df[col].astype('float32')  # Fallback to float32 if out of range
+        return df
+    else:
+        raise TypeError("Input must be a pandas DataFrame or Series.")
 # ---------------------------------------------------------------------------------------
+# @st.cache_data
 def load_chunks(directory, base_filename, parse_dates=None, date_column=None):
     chunk_files = sorted(
         [os.path.join(directory, f) for f in os.listdir(directory)
@@ -26,200 +54,85 @@ def load_chunks(directory, base_filename, parse_dates=None, date_column=None):
     data = pd.concat(all_chunks, axis=0)
     return data
 
-
-def get_path(filename):
-    """Construct full path for the file."""
-    root = os.path.dirname(__file__)
-    return os.path.join(root, 'data', filename)
-
-def load_data(file, file_type='excel', sheet=0, cols=None, transpose=False):
-    """Load data from Excel or CSV, setting index to 'Date' for CSV."""
-    if file_type == 'excel':
-        data = pd.read_excel(file, sheet_name=sheet, usecols=cols, index_col=0, engine='openpyxl')
-    elif file_type == 'csv':
-        data = pd.read_csv(file, index_col="Date", parse_dates=True)
-    return data.transpose() if transpose else data
-
-
-root = os.path.dirname(__file__)
-
 @st.cache_data
 def load_portfolio_returns():
     data = load_chunks(os.path.join(root, 'data'), 'portfolio_returns_gamma', parse_dates=["date"])
+    data['date'] = pd.to_datetime(data['date'])
     data.set_index(["gamma", "date"], inplace=True)
-    return data
+    return optimize_floats(data)
 
 @st.cache_data
 def load_efficient_frontier_data():
     data = load_chunks(os.path.join(root, 'data'), 'efficient_frontiers_gamma', parse_dates=["date"])
+    data['date'] = pd.to_datetime(data['date'])
     data.set_index(["gamma", "date", "portfolio"], inplace=True)
     data.sort_index(inplace=True)
-    return data
-
-@st.cache_data
-def load_weights_data(sub_portfolio_list, sub_portfolio, gamma_value):
-    """
-    Load and filter weights data for a specific sub-portfolio and gamma value.
-
-    Parameters:
-    - sub_portfolio_list: List of asset names or identifiers (e.g., ISINs).
-    - sub_portfolio: Sub-portfolio name (e.g., 'crypto', 'equity_amer').
-    - gamma_value: Gamma value to filter the data.
-
-    Returns:
-    - Filtered DataFrame with weights data.
-    """
-    # Load and preprocess data
-    data = load_chunks(os.path.join(root, 'data'), 'efficient_frontiers_gamma')
-    data.set_index(["gamma", "date", "portfolio"], inplace=True)
-
-    # Ensure data is sorted for proper filtering
-    data.sort_index(inplace=True)
-
-    if sub_portfolio in ["metals", "commodities", "crypto", "volatilities", "erc"]:
-        # Original method for simpler portfolios
-        filtered_data = data.loc[(gamma_value, slice(None), sub_portfolio), :]
-        return filtered_data[sub_portfolio_list]
-
-    else:
-        # For equities and other formatted portfolios
-        if gamma_value in data.index.get_level_values('gamma'):
-            filtered_data = data.loc[(gamma_value, slice(None), sub_portfolio), :]
-
-            # Extract the weights using sub_portfolio_list (e.g., ISINs)
-            formatted_columns = [col for col in sub_portfolio_list if col in filtered_data.columns]
-            if not formatted_columns:
-                raise ValueError("No matching columns found between data and sub_portfolio_list.")
-
-            # Select only the relevant columns
-            filtered_data = filtered_data[formatted_columns]
-
-            # Ensure the weights are in a usable format (e.g., non-negative, normalized if required)
-            # Normalize weights to sum to 1 if they don't already
-            filtered_data = filtered_data.div(filtered_data.sum(axis=1), axis=0)
-
-            return filtered_data
-        else:
-            raise ValueError(f"No data found for gamma = {gamma_value} and sub_portfolio = {sub_portfolio}.")
+    return optimize_floats(data)
 
 @st.cache_data
 def load_rates_data():
-    data = load_chunks(os.path.join(root, 'data'), 'rf_rate')
-    # Check for 'date' or 'Date' column
-    if 'date' in data.columns:
-        data['date'] = pd.to_datetime(data['date'])
-        data.set_index('date', inplace=True)
-    elif 'Date' in data.columns:
-        data['Date'] = pd.to_datetime(data['Date'])
-        data.set_index('Date', inplace=True)
-        data.index.name = 'date'  # Rename the index to 'date'
-    else:
-        st.error("No 'date' or 'Date' column found in risk-free rate data.")
-        return pd.DataFrame()
-    # Rename 'RF' column to 'rf_rate' to match code elsewhere
-    if 'RF' in data.columns:
-        data.rename(columns={'RF': 'rf_rate'}, inplace=True)
-    else:
-        st.error("No 'RF' column found in risk-free rate data.")
-        return pd.DataFrame()
-    return data
+    data = pd.read_csv(os.path.join(root, 'data/rf_rate.csv'))
+    data['date'] = pd.to_datetime(data['date'])
+    return data.rename(columns={'RF': 'rf_rate'}).set_index('date')  
 
-# Load additional data if needed
-# ---------------------------------------------------------------------------------------
-dir_path = os.path.dirname(os.path.realpath(__file__))
-master_path = os.path.join(dir_path, "data/data_YF/master_df.csv")
-master_df = pd.read_csv(master_path, index_col=0, parse_dates=True)
-
-# Help for making the web clean
-# --------------------------------------------------------------------------------------
-list_type_portfolio = ['equity_amer', 'equity_em', 'equity_eur', 'equity_pac',
-                       'metals', 'commodities', 'crypto', 'volatilities']
-
-list_clean_name = ['Metals', 'Commodities', 'Crypto', 'Volatilities',
-                   'North American Equities', 'Emerging Markets Equities', 'European Equities', 'Asia-Pacific Equities']
-
-list_commodities = ["Lean_Hogs", "Crude_Oil", "Live_Cattle", "Soybeans", "Wheat", "Corn", "Natural_Gas"]
-list_crypto = ["Bitcoin", "Ethereum"]
-list_metals = ["Gold", "Platinum", "Palladium", "Silver", "Copper"]
-list_volatilities = ["Russell_2000_RVX", "VVIX_VIX_of_VIX", "MOVE_bond_market_volatility",
-                     "VXO-S&P_100_volatility", "Nasdaq_VXN", "VIX"]
-
-list_ERC =['equity_amer', 'equity_em', 'equity_eur', 'equity_pac',
-                       'metals', 'commodities', 'crypto', 'volatilities']
-
-df_commodities = master_df[list_commodities].pct_change()
-df_crypto = master_df[list_crypto].pct_change()
-df_metals = master_df[list_metals].pct_change()
-df_volatilities = master_df[list_volatilities].pct_change()
-
-
-
-
-corr_matrix = master_df.corr()
-
-list_data_equity_path = os.path.join(root, 'data', 'list_equity')
-
-list_data_equity_amer = pd.read_csv(os.path.join(list_data_equity_path, "equity_amer.csv"))
-list_data_equity_amer=list_data_equity_amer["ISIN"]
-
-list_data_equity_em = pd.read_csv(os.path.join(list_data_equity_path, "equity_em.csv"))
-list_data_equity_em = list_data_equity_em["ISIN"]
-
-list_data_equity_eur = pd.read_csv(os.path.join(list_data_equity_path, "equity_eur.csv"))
-list_data_equity_eur = list_data_equity_eur["ISIN"]
-
-list_data_equity_pac = pd.read_csv(os.path.join(list_data_equity_path, "equity_pac.csv"))
-list_data_equity_pac = list_data_equity_pac["ISIN"]
-
-
-master_data_full = load_data(get_path('DS_RI_T_USD_M.xlsx'), cols=lambda x: x != 'NAME', transpose=True)
-
-df_equity_amer = master_data_full[list_data_equity_amer]
-df_equity_em = master_data_full[list_data_equity_em]
-df_equity_eur = master_data_full[list_data_equity_eur]
-df_equity_pac = master_data_full[list_data_equity_pac]
-
-df_equity_amer = df_equity_amer.pct_change()
-df_equity_em = df_equity_em.pct_change()
-df_equity_eur = df_equity_eur.pct_change()
-df_equity_pac = df_equity_pac.pct_change()
-
-
-
-# Efficient Frontier Functions
-# ---------------------------------------------------------------------------------------
 @st.cache_data
-def get_gamma_values(data):
-    return data.index.get_level_values('gamma').unique()
+def load_master_df():
+    """Load and process the main dataset."""
+    path = os.path.join(root, 'data', 'all_prices.csv')
+    df = pd.read_csv(path, skiprows=1, nrows=1)
+    columns = ['date', *list(df.columns)[1:]]
+    master_df = pd.read_csv(path, skiprows=3, names=columns, parse_dates=['date']).set_index('date')
+    del df
+    gc.collect()
+    return optimize_floats(master_df)
 
-gamma_array = np.array([
-    -0.5, -0.49, -0.48, -0.47, -0.46, -0.45, -0.44, -0.43, -0.42, -0.41, -0.4, -0.39,
-    -0.38, -0.37, -0.36, -0.35, -0.34, -0.33, -0.32, -0.31, -0.3, -0.29, -0.28, -0.27,
-    -0.26, -0.25, -0.24, -0.23, -0.22, -0.21, -0.2, -0.19, -0.18, -0.17, -0.16, -0.15,
-    -0.14, -0.13, -0.12, -0.11, -0.1, -0.09, -0.08, -0.07, -0.06, -0.05, -0.04, -0.03,
-    -0.02, -0.01, 0.0, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09,
-    0.1, 0.11, 0.12, 0.13, 0.14, 0.15, 0.16, 0.17, 0.18, 0.19, 0.2, 0.21,
-    0.22, 0.23, 0.24, 0.25, 0.26, 0.27, 0.28, 0.29, 0.3, 0.31, 0.32, 0.33,
-    0.34, 0.35, 0.36, 0.37, 0.38, 0.39, 0.4, 0.41, 0.42, 0.43, 0.44, 0.45,
-    0.46, 0.47, 0.48, 0.49, 0.5, 0.51, 0.52, 0.53, 0.54, 0.55, 0.56, 0.57,
-    0.58, 0.59, 0.6, 0.61, 0.62, 0.63, 0.64, 0.65, 0.66, 0.67, 0.68, 0.69,
-    0.7, 0.71, 0.72, 0.73, 0.74, 0.75, 0.76, 0.77, 0.78, 0.79, 0.8, 0.81,
-    0.82, 0.83, 0.84, 0.85, 0.86, 0.87, 0.88, 0.89, 0.9, 0.91, 0.92, 0.93,
-    0.94, 0.95, 0.96, 0.97, 0.98, 0.99, 1.0, 1.01, 1.02, 1.03, 1.04, 1.05,
-    1.06, 1.07, 1.08, 1.09, 1.1, 1.11, 1.12, 1.13, 1.14, 1.15, 1.16, 1.17,
-    1.18, 1.19, 1.2, 1.21, 1.22, 1.23, 1.24, 1.25, 1.26, 1.27, 1.28, 1.29,
-    1.3, 1.31, 1.32, 1.33, 1.34, 1.35, 1.36, 1.37, 1.38, 1.39, 1.4, 1.41,
-    1.42, 1.43, 1.44, 1.45, 1.46, 1.47, 1.48, 1.49, 1.5, 1.51, 1.52, 1.53,
-    1.54, 1.55, 1.56, 1.57, 1.58, 1.59, 1.6, 1.61, 1.62, 1.63, 1.64, 1.65,
-    1.66, 1.67, 1.68, 1.69, 1.7, 1.71, 1.72, 1.73, 1.74, 1.75, 1.76, 1.77,
-    1.78, 1.79, 1.8, 1.81, 1.82, 1.83, 1.84, 1.85, 1.86, 1.87, 1.88, 1.89,
-    1.9, 1.91, 1.92, 1.93, 1.94, 1.95, 1.96, 1.97, 1.98, 1.99, 2.0
-])
 
-def get_nearest_gamma(gamma_value, gamma_values):
-    gamma_values_array = np.array(gamma_values)
-    idx = (np.abs(gamma_values_array - gamma_value)).argmin()
-    return gamma_values_array[idx]
+#### Last above
+@st.cache_data
+def load_correlation_and_returns(master_df):
+    """Compute correlation matrix and returns."""
+    corr_matrix = optimize_floats(master_df.corr())
+    master_returns = master_df.pct_change(fill_method=None).replace([np.inf, -np.inf, np.nan], 0)
+    master_mean = optimize_floats(master_returns.mean() * 252)
+    master_std = optimize_floats(master_returns.std() * np.sqrt(252))
+    master_returns = optimize_floats(master_returns)
+    return corr_matrix, master_returns, master_mean, master_std
+
+
+# Exception
+@st.cache_data
+def load_equity_lists():
+    """Load equity lists for different regions."""
+    list_data_equity_path = os.path.join(root, 'data', 'list_equity')
+    equity_amer = pd.read_csv(os.path.join(list_data_equity_path, "equity_amer.csv"))["ISIN"]
+    equity_em = pd.read_csv(os.path.join(list_data_equity_path, "equity_em.csv"))["ISIN"]
+    equity_eur = pd.read_csv(os.path.join(list_data_equity_path, "equity_eur.csv"))["ISIN"]
+    equity_pac = pd.read_csv(os.path.join(list_data_equity_path, "equity_pac.csv"))["ISIN"]
+    return equity_amer, equity_em, equity_eur, equity_pac
+
+@st.cache_data
+def process_portfolio_returns(portfolio_returns):
+    """Process portfolio return data."""
+    portfolio_mean = optimize_floats(portfolio_returns.groupby('gamma').mean() * 12 * 100, robust=True)
+    portfolio_std = optimize_floats(portfolio_returns.groupby('gamma').std() * np.sqrt(12) * 100, robust=True)
+    return portfolio_mean, portfolio_std
+
+@st.cache_data
+def extract_available_dates(frontier_data):
+    """Extract unique sorted available dates from the frontier data."""
+    available_dates = frontier_data.index.get_level_values('date').unique().sort_values()
+    return available_dates
+
+@st.cache_data
+def process_portfolio_weights(frontier_data):
+    """Process portfolio weights data."""
+    all_weights_data = frontier_data.drop(columns=['expected_return', 'expected_variance'])
+    all_weights_data = all_weights_data.where(all_weights_data > 0, 0)
+    all_weights_data = all_weights_data.div(all_weights_data.sum(axis=1), axis=0)
+    all_weights_data = optimize_floats(all_weights_data, robust=True)
+    return all_weights_data
+
+st.session_state['gamma_value'] = 0.5  # Default value
 
 def plot_efficient_frontier(data, selected_portfolio, selected_date, gamma_value, risk_free_rate_data):
     # Filter data for the selected gamma, portfolio, and date
@@ -236,9 +149,9 @@ def plot_efficient_frontier(data, selected_portfolio, selected_date, gamma_value
     # Compute standard deviation from variance
     standard_deviation = np.sqrt(x)
 
-    # Use standard deviation for plotting
-    x_plot = standard_deviation
-    y_plot = y
+    # # Use standard deviation for plotting
+    # x_plot = standard_deviation
+    # y_plot = y
 
     # Get the risk-free rate for the selected date
     if selected_date in risk_free_rate_data.index:
@@ -356,6 +269,57 @@ with st.sidebar:
     st.title("Portfolio Optimization")
     choice = st.radio("Steps", ["Introduction", "Risk Profiling", "Data Exploration", "Sub-Portfolio", "Final Portfolio", "Performance"])
 
+gc.collect()
+
+equity_amer, equity_em, equity_eur, equity_pac = load_equity_lists()
+list_type_portfolio = ['equity_amer', 'equity_em', 'equity_eur', 'equity_pac', 'metals', 'commodities', 'crypto', 'volatilities']
+
+list_clean_name = ['Metals', 'Commodities', 'Crypto', 'Volatilities', 
+                   'North American Equities', 'Emerging Markets Equities', 
+                   'European Equities', 'Asia-Pacific Equities']
+
+list_commodities = ["Lean_Hogs", "Crude_Oil", "Live_Cattle", "Soybeans", "Wheat", "Corn", "Natural_Gas"]
+
+list_crypto = ["Bitcoin", "Ethereum"]
+
+list_metals = ["Gold", "Platinum", "Palladium", "Silver", "Copper"]
+
+list_volatilities = ["Russell_2000_RVX", "VVIX_VIX_of_VIX", "MOVE_bond_market_volatility", 
+                     "VXO-S&P_100_volatility", "Nasdaq_VXN", "VIX"]
+
+list_ERC = list_type_portfolio
+
+ticker_mapping = {
+        'Metals': list_metals,
+        'Commodities': list_commodities,
+        'Crypto': list_crypto,
+        'Volatilities': list_volatilities,
+        'North American Equities': equity_amer,
+        'Emerging Markets Equities': equity_em,
+        'European Equities': equity_eur,
+        'Asia-Pacific Equities': equity_pac,
+        'ERC': list_ERC
+    }
+
+portfolio_mapping = {
+        'Metals': 'metals',
+        'Commodities': 'commodities',
+        'Crypto': 'crypto',
+        'Volatilities': 'volatilities',
+        'North American Equities': 'equity_amer',
+        'Emerging Markets Equities': 'equity_em',
+        'European Equities': 'equity_eur',
+        'Asia-Pacific Equities': 'equity_pac',
+        'ERC': 'erc'
+    }
+
+frontier_data = load_efficient_frontier_data()
+gamma_array = frontier_data.index.get_level_values('gamma').unique().values
+def get_nearest_gamma(gamma_value):
+    return min(gamma_array, key=lambda x: abs(x - gamma_value))
+del frontier_data
+
+
 # ***********************************************************************************************************
 # Introduction
 # ***********************************************************************************************************
@@ -462,7 +426,8 @@ if choice == "Risk Profiling":
         gamma_value = (gamma_score / 15) * 0.5  # Normalized to a range
 
     # Adjust Gamma value to nearest available Gamma in the dataset
-    gamma_value = get_nearest_gamma(gamma_value, get_gamma_values(load_efficient_frontier_data()))
+    #TODO: gamma problems
+    gamma_value = get_nearest_gamma(gamma_value)
     st.write(f"Based on your answers, your estimated Gamma is **{gamma_value:.4f}**")
 
     # Save Gamma to session state
@@ -474,46 +439,30 @@ if choice == "Risk Profiling":
 # ***********************************************************************************************************
 if choice == "Data Exploration":
 
+    master_df = load_master_df()
+    corr_matrix, master_returns, master_mean, master_std = load_correlation_and_returns(master_df)
+    del master_df
+
     st.title("Data Exploration")
     selection = st.selectbox("Choose portfolio class", list_clean_name, index=0)
 
-    # Map the selection to the portfolio name used in the data
-    portfolio_mapping = {
-        'Metals': 'metals',
-        'Commodities': 'commodities',
-        'Crypto': 'crypto',
-        'Volatilities': 'volatilities',
-        'North American Equities': 'equity_amer',
-        'Emerging Markets Equities': 'equity_em',
-        'European Equities': 'equity_eur',
-        'Asia-Pacific Equities': 'equity_pac',
-    }
     selected_portfolio = portfolio_mapping.get(selection)
 
     if selection in ["Commodities", "Metals", "Crypto", "Volatilities"]:
 
-        if selection == "Commodities":
-            data_use = df_commodities
-            correl_matrix = corr_matrix.loc[list_commodities, list_commodities]
-
-        elif selection == "Metals":
-            data_use = df_metals
-            correl_matrix = corr_matrix.loc[list_metals, list_metals]
-
-        elif selection == "Crypto":
-            data_use = df_crypto
-            correl_matrix = corr_matrix.loc[list_crypto, list_crypto]
-
-        elif selection == "Volatilities":
-            data_use = df_volatilities
-            correl_matrix = corr_matrix.loc[list_volatilities, list_volatilities]
+        mean_use = master_mean[ticker_mapping[selection]]
+        del master_mean
+        std_use = master_std[ticker_mapping[selection]]
+        del master_std
+        correl_matrix = corr_matrix.loc[ticker_mapping[selection], ticker_mapping[selection]]
+        del corr_matrix
 
         # Display expected returns and volatilities
         st.subheader("Expected Annualized Returns and Volatilities", divider="gray")
         st.write("Expected Annualized Returns")
-        st.bar_chart(data_use.mean() * 252)
+        st.bar_chart(mean_use)
         st.write("Expected Annualized Volatilities")
-        st.bar_chart(data_use.std() * np.sqrt(252))
+        st.bar_chart(std_use)
 
         # Heatmap visualization
         st.subheader("Correlation Heatmap", divider="gray")
@@ -535,9 +484,13 @@ if choice == "Data Exploration":
 
         # Efficient Frontier for the selected portfolio
         st.subheader("Efficient Frontier", divider="gray")
+        # frontier_data = load_efficient_frontier_data()
+        # rf_rate_data = load_rates_data()
+
         frontier_data = load_efficient_frontier_data()
         rf_rate_data = load_rates_data()
-
+        available_dates = extract_available_dates(frontier_data)
+        
         if frontier_data.empty or rf_rate_data.empty:
             st.error("Efficient frontier data or risk-free rate data is unavailable.")
         else:
@@ -548,7 +501,7 @@ if choice == "Data Exploration":
                 else:
                     # Get available dates for the selected portfolio
                     available_data = frontier_data.xs(selected_portfolio, level='portfolio')
-                    available_dates = available_data.index.get_level_values('date').unique().sort_values()
+                    # available_dates = available_data.index.get_level_values('date').unique().sort_values()
                     selected_date = st.select_slider(
                         "Select Date",
                         options=available_dates,
@@ -571,7 +524,10 @@ if choice == "Data Exploration":
         st.info("Data exploration is different for equities due to the large number of securities.")
 
         # Load portfolio returns
-        portfolio_returns = load_portfolio_returns()
+        # portfolio_returns = load_portfolio_returns()
+        portfolio_returns = optimize_floats(load_portfolio_returns(), robust=True)
+        portfolio_mean, portfolio_std = process_portfolio_returns(portfolio_returns)
+
         gamma_value = st.session_state.get('gamma_value', None)
         if gamma_value is None:
             st.warning("Please set your gamma in the 'Risk Profiling' section.")
@@ -584,35 +540,12 @@ if choice == "Data Exploration":
                 st.error(f"No data available for gamma value {gamma_value}")
                 st.stop()
 
-        if selection == "North American Equities":
-            mean = str(round(float(returns_gamma["equity_amer"].mean() * 12 * 100), 2))
-            vol = str(round(float(returns_gamma["equity_amer"].std() * np.sqrt(12) * 100), 2))
-            nb_eq = int(list_data_equity_amer.shape[0])
-            list_isin = list_data_equity_amer
-
-        elif selection == "North American Equities":
-            mean = str(round(float(returns_gamma["equity_amer"].mean() * 12 * 100), 2))
-            vol = str(round(float(returns_gamma["equity_amer"].std() * np.sqrt(12) * 100), 2))
-            nb_eq = int(list_data_equity_amer.shape[0])
-            list_isin = list_data_equity_amer
-
-        elif selection == "Emerging Markets Equities":
-            mean = str(round(float(returns_gamma["equity_em"].mean() * 12 * 100), 2))
-            vol = str(round(float(returns_gamma["equity_em"].std() * np.sqrt(12) * 100), 2))
-            nb_eq = int(list_data_equity_em.shape[0])
-            list_isin = list_data_equity_em
-
-        elif selection == "European Equities":
-            mean = str(round(float(returns_gamma["equity_eur"].mean() * 12 * 100), 2))
-            vol = str(round(float(returns_gamma["equity_eur"].std() * np.sqrt(12) * 100), 2))
-            nb_eq = int(list_data_equity_eur.shape[0])
-            list_isin = list_data_equity_eur
-
-        elif selection == "Asia-Pacific Equities":
-            mean = str(round(float(returns_gamma["equity_pac"].mean() * 12 * 100), 2))
-            vol = str(round(float(returns_gamma["equity_pac"].std() * np.sqrt(12) * 100), 2))
-            nb_eq = int(list_data_equity_pac.shape[0])
-            list_isin = list_data_equity_pac
+        mapping = portfolio_mapping[selection]
+        mean = str(round(float(portfolio_mean.loc[gamma_value, mapping]), 2))
+        vol = str(round(float(portfolio_std.loc[gamma_value, mapping]), 2))
+        del portfolio_mean, portfolio_std
+        list_isin = ticker_mapping[selection]
+        nb_eq = len(list_isin)
 
         # Display expected return, volatility, and equity details
         st.subheader("Expected Annualized Return and Volatility", divider="gray")
@@ -626,8 +559,12 @@ if choice == "Data Exploration":
 
         # Efficient Frontier for equity portfolios
         st.subheader("Efficient Frontier", divider="gray")
+        # frontier_data = load_efficient_frontier_data()
+        # rf_rate_data = load_rates_data()
+
         frontier_data = load_efficient_frontier_data()
         rf_rate_data = load_rates_data()
+        available_dates = extract_available_dates(frontier_data)
 
         if frontier_data.empty or rf_rate_data.empty:
             st.error("Efficient frontier data or risk-free rate data is unavailable.")
@@ -639,7 +576,7 @@ if choice == "Data Exploration":
                 else:
                     # Get available dates for the selected portfolio
                     available_data = frontier_data.xs(selected_portfolio, level='portfolio')
-                    available_dates = available_data.index.get_level_values('date').unique().sort_values()
+                    # available_dates = available_data.index.get_level_values('date').unique().sort_values()
                     selected_date = st.select_slider(
                         "Select Date",
                         options=available_dates,
@@ -671,52 +608,30 @@ if choice == "Sub-Portfolio":
     st.title("Sub-Portfolio")
     selection = st.selectbox("Choose portfolio class", list_clean_name, index=0)
 
-    # Mapping selection to portfolio name
-    selection_to_portfolio_name = {
-        "Metals": "metals",
-        "Commodities": "commodities",
-        "Crypto": "crypto",
-        "Volatilities": "volatilities",
-        "North American Equities": "equity_amer",
-        "Emerging Markets Equities": "equity_em",
-        "European Equities": "equity_eur",
-        "Asia-Pacific Equities": "equity_pac",
-        "ERC": "erc"
-    }
-
     gamma_value = st.session_state.get('gamma_value', None)
     if gamma_value is None:
         st.warning("Please set your gamma in the 'Risk Profiling' section.")
         st.stop()
 
-    portfolio_name = selection_to_portfolio_name[selection]
+    portfolio_name = portfolio_mapping[selection]
 
     if portfolio_name == "crypto":
         limit = '2014-01-01'
     else:
         limit = '2006-01-01'
 
-    # Define sub-portfolio list
-    sub_portfolio_list = []
-    if selection in ["Metals", "Commodities", "Crypto", "Volatilities"]:
-        sub_portfolio_list = globals()[f"list_{portfolio_name}"]
-    elif selection in ["North American Equities", "Emerging Markets Equities",
-                       "European Equities", "Asia-Pacific Equities"]:
-        sub_portfolio_list = globals()[f"list_data_{portfolio_name}"]
+    sub_portfolio_list = ticker_mapping[selection]
 
-    # Load weights and returns data
+    master_df = load_master_df()
+    _, master_returns, _, _ = load_correlation_and_returns(master_df)
+    del _
+    frontier_data = load_efficient_frontier_data()
+    all_weights_data = process_portfolio_weights(frontier_data)
+    del frontier_data
+
     try:
-        weights_data = load_weights_data(sub_portfolio_list, portfolio_name, gamma_value)
-        if selection in ["Metals", "Commodities", "Crypto", "Volatilities"]:
-            returns_data = master_df[sub_portfolio_list].pct_change()
-        else:
-            returns_data = master_data_full[sub_portfolio_list].pct_change()
-
-        # Ensure proper date formatting
-        weights_data.index = pd.to_datetime(weights_data.index.get_level_values('date'))
-        returns_data.index = pd.to_datetime(returns_data.index)
-
-        # Filter data starting from 1 January 2006
+        weights_data = all_weights_data.xs(key=(gamma_value, portfolio_name), level=('gamma', 'portfolio'))[sub_portfolio_list]
+        returns_data = master_returns[sub_portfolio_list]
         weights_data = weights_data[weights_data.index >= pd.Timestamp(limit)]
         returns_data = returns_data[returns_data.index >= pd.Timestamp(limit)]
 
@@ -724,12 +639,9 @@ if choice == "Sub-Portfolio":
         st.error(f"Error loading data: {e}")
         st.stop()
 
-    # Align data to the first day of the month
     rebalancing_dates = weights_data.index.sort_values()
     weights_monthly = weights_data.resample('MS').ffill()
-    returns_data_bom = returns_data.resample('MS').first()
 
-    # Initialize weights if no weights available for the first date
     if not weights_monthly.empty and not weights_monthly.index[0] == returns_data.index[0]:
         first_weights = weights_monthly.iloc[0]
         first_date = returns_data.index[0]
@@ -743,37 +655,17 @@ if choice == "Sub-Portfolio":
     for date in returns_data.index:
         #print(date, date.month)
         if date.month == 1 and date.year <= 2021 and date.year != prev_date:
-            #print(date, date.month,"\n --------")
             new_date = pd.Timestamp(date).replace(day=1)
             current_weights = weights_monthly.loc[new_date]
-            #print(current_weights)
 
-        # Adjust weights dynamically based on the previous weights and returns
-        aligned_weights = current_weights.reindex(returns_data.columns).fillna(0)
-        aligned_returns = returns_data.loc[date].reindex(aligned_weights.index).fillna(0)
-
-        current_weights = current_weights.clip(lower=0)
-        # Calculate portfolio value
         portfolio_value = (current_weights * (1 + returns_data.loc[date].fillna(0))).sum()
-
-        # Update weights dynamically
         current_weights = (current_weights * (1 + returns_data.loc[date].fillna(0))) / portfolio_value
 
-
-        # Ensure weights are normalized to sum to 1
-        if current_weights.sum() > 1.0:
-
-            current_weights = current_weights / current_weights.sum()
-
-
-        # Store the updated weights
         dynamic_weights.loc[date] = current_weights
         prev_date= date.year
 
-    # Fill missing weights forward
-    dynamic_weights.fillna(method='ffill', inplace=True)
+    dynamic_weights.ffill(inplace=True)
 
-    # Use select_slider for available dates
     available_dates = dynamic_weights.index[dynamic_weights.index >= pd.Timestamp(limit)].to_pydatetime()
     if not available_dates.size:
         st.error("No data available from January 2006 onwards.")
@@ -833,17 +725,18 @@ if choice == "Final Portfolio":
 
     # Define sub-portfolio list for ERC
     sub_portfolio_list = erc_portfolio_columns
+    frontier_data = load_efficient_frontier_data()
+    all_weights_data = process_portfolio_weights(frontier_data)
+    del frontier_data
 
-    # Load weights and returns data
     try:
-        weights_data = load_weights_data(sub_portfolio_list, "erc", gamma_value)
-        returns_data = load_portfolio_returns().xs(gamma_value, level='gamma')
+        weights_data = all_weights_data.xs(key=(gamma_value, "erc"), level=('gamma', 'portfolio'))[sub_portfolio_list]
+        del all_weights_data
 
-        # Ensure proper date formatting
-        weights_data.index = pd.to_datetime(weights_data.index.get_level_values('date'))
-        returns_data.index = pd.to_datetime(returns_data.index)
+        portfolio_returns = optimize_floats(load_portfolio_returns(), robust=True)
+        returns_data = portfolio_returns.xs(gamma_value, level='gamma')[sub_portfolio_list]
+        del portfolio_returns
 
-        # Filter data starting from 1 January 2006
         weights_data = weights_data[weights_data.index >= pd.Timestamp('2006-01-01')]
         returns_data = returns_data[returns_data.index >= pd.Timestamp('2006-01-01')]
 
@@ -854,7 +747,7 @@ if choice == "Final Portfolio":
     # Align data to the first day of the month
     rebalancing_dates = weights_data.index.sort_values()
     weights_monthly = weights_data.resample('MS').ffill()
-    returns_data_bom = returns_data.resample('MS').first()
+    # returns_data_bom = returns_data.resample('MS').first()
 
     # Initialize weights if no weights available for the first date
     if not weights_monthly.empty and not weights_monthly.index[0] == returns_data.index[0]:
@@ -888,23 +781,10 @@ if choice == "Final Portfolio":
         # Update weights dynamically
         current_weights = (current_weights * (1 + returns_data.loc[date].fillna(0))) / portfolio_value
 
-        # Ensure all weights are non-negative
-        current_weights = current_weights.clip(lower=0)
-
-        # Re-normalize weights to sum to 1
-        if current_weights.sum() > 0:
-            current_weights = current_weights / current_weights.sum()
-        else:
-            # If all weights are zero, reset to equal weights
-            current_weights = pd.Series(1 / len(sub_portfolio_list), index=sub_portfolio_list)
-
-        # Store the updated weights
         dynamic_weights.loc[date] = current_weights
         prev_date = date.year
 
-
-    # Fill missing weights forward
-    dynamic_weights.fillna(method='ffill', inplace=True)
+    dynamic_weights.ffill(inplace=True)
 
     # Use select_slider for available dates
     available_dates = dynamic_weights.index[dynamic_weights.index >= pd.Timestamp('2006-01-01')].to_pydatetime()
@@ -996,15 +876,25 @@ if choice == "Performance":
         )
 
         # Save the gamma value in session state
+        gamma_value = get_nearest_gamma(gamma_value)
         st.session_state["gamma_value"] = gamma_value
-        gamma_value = get_nearest_gamma(gamma_value, get_gamma_values(load_efficient_frontier_data()))
 
         # Load portfolio returns
-        portfolio_returns = load_portfolio_returns()
+        # portfolio_returns = load_portfolio_returns()
+
+        #     master_df = load_master_df()
+        #     corr_matrix, _, _, _ = load_correlation_and_returns(master_df)
+        #     # del master_df, _
+        #     frontier_data = load_efficient_frontier_data()
+        #     available_dates = extract_available_dates(frontier_data)
+        #     gamma_array = frontier_data.index.get_level_values('gamma').unique().values
+        #     # del frontier_data
+        portfolio_returns = optimize_floats(load_portfolio_returns(), robust=True)
 
         # Get returns for the selected gamma
         try:
             returns_gamma = portfolio_returns.xs(gamma_value, level='gamma')
+            del portfolio_returns
         except KeyError:
             st.error(f"No data available for gamma value {gamma_value}")
             st.stop()
