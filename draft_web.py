@@ -132,7 +132,7 @@ def process_portfolio_weights(frontier_data):
     all_weights_data = optimize_floats(all_weights_data, robust=True)
     return all_weights_data
 
-st.session_state['gamma_value'] = 0.5  # Default value
+# st.session_state['gamma_value'] = 0.5  # Default value
 
 def plot_efficient_frontier(data, selected_portfolio, selected_date, gamma_value, risk_free_rate_data):
     # Filter data for the selected gamma, portfolio, and date
