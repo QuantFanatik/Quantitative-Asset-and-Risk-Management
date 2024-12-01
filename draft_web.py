@@ -46,71 +46,35 @@ root = os.path.dirname(__file__)
 @st.cache_data
 def load_portfolio_returns():
     data = load_chunks(os.path.join(root, 'data'), 'portfolio_returns_gamma', parse_dates=["date"])
-    data['date'] = pd.to_datetime(data['date'])
     data.set_index(["gamma", "date"], inplace=True)
     return data
 
 @st.cache_data
 def load_efficient_frontier_data():
     data = load_chunks(os.path.join(root, 'data'), 'efficient_frontiers_gamma', parse_dates=["date"])
-    data['date'] = pd.to_datetime(data['date'])
     data.set_index(["gamma", "date", "portfolio"], inplace=True)
     data.sort_index(inplace=True)
     return data
 
-# @st.cache_data
-# def load_weights_data(sub_portfolio_list, sub_portfolio, gamma_value):
-#     """
-#     Load and filter weights data for a specific sub-portfolio and gamma value.
-
-#     Parameters:
-#     - sub_portfolio_list: List of asset names or identifiers (e.g., ISINs).
-#     - sub_portfolio: Sub-portfolio name (e.g., 'crypto', 'equity_amer').
-#     - gamma_value: Gamma value to filter the data.
-
-#     Returns:
-#     - Filtered DataFrame with weights data.
-#     """
-#     # Load and preprocess data
-#     data = load_chunks(os.path.join(root, 'data'), 'efficient_frontiers_gamma')
-#     data.set_index(["gamma", "date", "portfolio"], inplace=True)
-
-#     # Ensure data is sorted for proper filtering
-#     data.sort_index(inplace=True)
-
-#     if sub_portfolio in ["metals", "commodities", "crypto", "volatilities", "erc"]:
-#         # Original method for simpler portfolios
-#         filtered_data = data.loc[(gamma_value, slice(None), sub_portfolio), :]
-#         return filtered_data[sub_portfolio_list]
-
-#     else:
-#         # For equities and other formatted portfolios
-#         if gamma_value in data.index.get_level_values('gamma'):
-#             filtered_data = data.loc[(gamma_value, slice(None), sub_portfolio), :]
-
-#             # Extract the weights using sub_portfolio_list (e.g., ISINs)
-#             formatted_columns = [col for col in sub_portfolio_list if col in filtered_data.columns]
-#             if not formatted_columns:
-#                 raise ValueError("No matching columns found between data and sub_portfolio_list.")
-
-#             # Select only the relevant columns
-#             filtered_data = filtered_data[formatted_columns]
-
-#             # Ensure the weights are in a usable format (e.g., non-negative, normalized if required)
-#             # Normalize weights to sum to 1 if they don't already
-#             filtered_data = filtered_data.div(filtered_data.sum(axis=1), axis=0)
-
-#             return filtered_data
-#         else:
-#             raise ValueError(f"No data found for gamma = {gamma_value} and sub_portfolio = {sub_portfolio}.")
-
 @st.cache_data
 def load_weights_data(sub_portfolio_list, sub_portfolio, gamma_value):
+    """
+    Load and filter weights data for a specific sub-portfolio and gamma value.
+
+    Parameters:
+    - sub_portfolio_list: List of asset names or identifiers (e.g., ISINs).
+    - sub_portfolio: Sub-portfolio name (e.g., 'crypto', 'equity_amer').
+    - gamma_value: Gamma value to filter the data.
+
+    Returns:
+    - Filtered DataFrame with weights data.
+    """
+    # Load and preprocess data
     data = load_chunks(os.path.join(root, 'data'), 'efficient_frontiers_gamma')
-    data['date'] = pd.to_datetime(data['date'])
     data.set_index(["gamma", "date", "portfolio"], inplace=True)
+
+    # Ensure data is sorted for proper filtering
     data.sort_index(inplace=True)
-    data
 
     if sub_portfolio in ["metals", "commodities", "crypto", "volatilities", "erc"]:
         # Original method for simpler portfolios
@@ -162,14 +126,9 @@ def load_rates_data():
 
 # Load additional data if needed
 # ---------------------------------------------------------------------------------------
-# dir_path = os.path.dirname(os.path.realpath(__file__))
-# master_path = os.path.join(dir_path, "data/data_YF/master_df.csv")
-# master_df = pd.read_csv(master_path, index_col=0, parse_dates=True)
-
-path = os.path.join(os.path.dirname(__file__), 'data', 'all_prices.csv')
-df = pd.read_csv(path, skiprows=1, nrows=1)
-columns = ['date', *list(df.columns)[1:]]
-master_df = pd.read_csv(path, skiprows=3, names=columns, parse_dates=['date']).set_index('date')
+dir_path = os.path.dirname(os.path.realpath(__file__))
+master_path = os.path.join(dir_path, "data/data_YF/master_df.csv")
+master_df = pd.read_csv(master_path, index_col=0, parse_dates=True)
 
 # Help for making the web clean
 # --------------------------------------------------------------------------------------
@@ -188,19 +147,15 @@ list_volatilities = ["Russell_2000_RVX", "VVIX_VIX_of_VIX", "MOVE_bond_market_vo
 list_ERC =['equity_amer', 'equity_em', 'equity_eur', 'equity_pac',
                        'metals', 'commodities', 'crypto', 'volatilities']
 
-# df_commodities = master_df[list_commodities].pct_change()
-# df_crypto = master_df[list_crypto].pct_change()
-# df_metals = master_df[list_metals].pct_change()
-# df_volatilities = master_df[list_volatilities].pct_change()
+df_commodities = master_df[list_commodities].pct_change()
+df_crypto = master_df[list_crypto].pct_change()
+df_metals = master_df[list_metals].pct_change()
+df_volatilities = master_df[list_volatilities].pct_change()
 
 
 
 
 corr_matrix = master_df.corr()
-master_returns = master_df.pct_change()
-master_mean = master_returns.mean() * 252
-master_std = master_returns.std() * np.sqrt(252)
-
 
 list_data_equity_path = os.path.join(root, 'data', 'list_equity')
 
@@ -217,56 +172,17 @@ list_data_equity_pac = pd.read_csv(os.path.join(list_data_equity_path, "equity_p
 list_data_equity_pac = list_data_equity_pac["ISIN"]
 
 
-# master_data_full = load_data(get_path('DS_RI_T_USD_M.xlsx'), cols=lambda x: x != 'NAME', transpose=True)
+master_data_full = load_data(get_path('DS_RI_T_USD_M.xlsx'), cols=lambda x: x != 'NAME', transpose=True)
 
-# df_equity_amer = master_data_full[list_data_equity_amer]
-# df_equity_em = master_data_full[list_data_equity_em]
-# df_equity_eur = master_data_full[list_data_equity_eur]
-# df_equity_pac = master_data_full[list_data_equity_pac]
+df_equity_amer = master_data_full[list_data_equity_amer]
+df_equity_em = master_data_full[list_data_equity_em]
+df_equity_eur = master_data_full[list_data_equity_eur]
+df_equity_pac = master_data_full[list_data_equity_pac]
 
-# df_equity_amer = df_equity_amer.pct_change()
-# df_equity_em = df_equity_em.pct_change()
-# df_equity_eur = df_equity_eur.pct_change()
-# df_equity_pac = df_equity_pac.pct_change()
-
-frontier_data = load_efficient_frontier_data()
-rf_rate_data = load_rates_data()
-portfolio_returns = load_portfolio_returns()
-available_dates = frontier_data.index.get_level_values('date').unique().sort_values()
-
-portfolio_mean = portfolio_returns.groupby('gamma').mean() * 12 * 100
-portfolio_std = portfolio_returns.groupby('gamma').std() * np.sqrt(12) * 100
-
-all_weights_data = frontier_data.drop(columns=['expected_return', 'expected_variance'])
-all_weights_data = all_weights_data.where(all_weights_data > 0, 0)
-all_weights_data = all_weights_data.div(all_weights_data.sum(axis=1), axis=0)
-
-gamma_array = frontier_data.index.get_level_values('gamma').unique()
-
-ticker_mapping = {
-        'Metals': list_metals,
-        'Commodities': list_commodities,
-        'Crypto': list_crypto,
-        'Volatilities': list_volatilities,
-        'North American Equities': list_data_equity_amer,
-        'Emerging Markets Equities': list_data_equity_em,
-        'European Equities': list_data_equity_eur,
-        'Asia-Pacific Equities': list_data_equity_pac,
-        'ERC': list_ERC
-    }
-
-portfolio_mapping = {
-        'Metals': 'metals',
-        'Commodities': 'commodities',
-        'Crypto': 'crypto',
-        'Volatilities': 'volatilities',
-        'North American Equities': 'equity_amer',
-        'Emerging Markets Equities': 'equity_em',
-        'European Equities': 'equity_eur',
-        'Asia-Pacific Equities': 'equity_pac',
-        'ERC': 'erc'
-    }
-
+df_equity_amer = df_equity_amer.pct_change()
+df_equity_em = df_equity_em.pct_change()
+df_equity_eur = df_equity_eur.pct_change()
+df_equity_pac = df_equity_pac.pct_change()
 
 
 
@@ -276,13 +192,8 @@ portfolio_mapping = {
 def get_gamma_values(data):
     return data.index.get_level_values('gamma').unique()
 
-# def get_nearest_gamma(gamma_value, gamma_values):
-#     gamma_values_array = np.array(gamma_values)
-#     idx = (np.abs(gamma_values_array - gamma_value)).argmin()
-#     return gamma_values_array[idx]
-
-def get_nearest_gamma(gamma_value, _=None):
-    gamma_values_array = np.array(gamma_array)
+def get_nearest_gamma(gamma_value, gamma_values):
+    gamma_values_array = np.array(gamma_values)
     idx = (np.abs(gamma_values_array - gamma_value)).argmin()
     return gamma_values_array[idx]
 
@@ -527,7 +438,6 @@ if choice == "Risk Profiling":
         gamma_value = (gamma_score / 15) * 0.5  # Normalized to a range
 
     # Adjust Gamma value to nearest available Gamma in the dataset
-    #TODO: gamma problems
     gamma_value = get_nearest_gamma(gamma_value, np.linspace(-0.5, 2, 251))
     st.write(f"Based on your answers, your estimated Gamma is **{gamma_value:.4f}**")
 
@@ -544,47 +454,42 @@ if choice == "Data Exploration":
     selection = st.selectbox("Choose portfolio class", list_clean_name, index=0)
 
     # Map the selection to the portfolio name used in the data
-    # portfolio_mapping = {
-    #     'Metals': 'metals',
-    #     'Commodities': 'commodities',
-    #     'Crypto': 'crypto',
-    #     'Volatilities': 'volatilities',
-    #     'North American Equities': 'equity_amer',
-    #     'Emerging Markets Equities': 'equity_em',
-    #     'European Equities': 'equity_eur',
-    #     'Asia-Pacific Equities': 'equity_pac',
-    # }
-
+    portfolio_mapping = {
+        'Metals': 'metals',
+        'Commodities': 'commodities',
+        'Crypto': 'crypto',
+        'Volatilities': 'volatilities',
+        'North American Equities': 'equity_amer',
+        'Emerging Markets Equities': 'equity_em',
+        'European Equities': 'equity_eur',
+        'Asia-Pacific Equities': 'equity_pac',
+    }
     selected_portfolio = portfolio_mapping.get(selection)
 
     if selection in ["Commodities", "Metals", "Crypto", "Volatilities"]:
 
-        # if selection == "Commodities":
-        #     data_use = df_commodities
-        #     correl_matrix = corr_matrix.loc[list_commodities, list_commodities]
+        if selection == "Commodities":
+            data_use = df_commodities
+            correl_matrix = corr_matrix.loc[list_commodities, list_commodities]
 
-        # elif selection == "Metals":
-        #     data_use = df_metals
-        #     correl_matrix = corr_matrix.loc[list_metals, list_metals]
+        elif selection == "Metals":
+            data_use = df_metals
+            correl_matrix = corr_matrix.loc[list_metals, list_metals]
 
-        # elif selection == "Crypto":
-        #     data_use = df_crypto
-        #     correl_matrix = corr_matrix.loc[list_crypto, list_crypto]
+        elif selection == "Crypto":
+            data_use = df_crypto
+            correl_matrix = corr_matrix.loc[list_crypto, list_crypto]
 
-        # elif selection == "Volatilities":
-        #     data_use = df_volatilities
-        #     correl_matrix = corr_matrix.loc[list_volatilities, list_volatilities]
-
-        mean_use = master_mean[ticker_mapping[selection]]
-        std_use = master_std[ticker_mapping[selection]]
-        correl_matrix = corr_matrix.loc[ticker_mapping[selection], ticker_mapping[selection]]
+        elif selection == "Volatilities":
+            data_use = df_volatilities
+            correl_matrix = corr_matrix.loc[list_volatilities, list_volatilities]
 
         # Display expected returns and volatilities
         st.subheader("Expected Annualized Returns and Volatilities", divider="gray")
         st.write("Expected Annualized Returns")
-        st.bar_chart(mean_use)
+        st.bar_chart(data_use.mean() * 252)
         st.write("Expected Annualized Volatilities")
-        st.bar_chart(std_use)
+        st.bar_chart(data_use.std() * np.sqrt(252))
 
         # Heatmap visualization
         st.subheader("Correlation Heatmap", divider="gray")
@@ -606,8 +511,8 @@ if choice == "Data Exploration":
 
         # Efficient Frontier for the selected portfolio
         st.subheader("Efficient Frontier", divider="gray")
-        # frontier_data = load_efficient_frontier_data()
-        # rf_rate_data = load_rates_data()
+        frontier_data = load_efficient_frontier_data()
+        rf_rate_data = load_rates_data()
 
         if frontier_data.empty or rf_rate_data.empty:
             st.error("Efficient frontier data or risk-free rate data is unavailable.")
@@ -619,7 +524,7 @@ if choice == "Data Exploration":
                 else:
                     # Get available dates for the selected portfolio
                     available_data = frontier_data.xs(selected_portfolio, level='portfolio')
-                    # available_dates = available_data.index.get_level_values('date').unique().sort_values()
+                    available_dates = available_data.index.get_level_values('date').unique().sort_values()
                     selected_date = st.select_slider(
                         "Select Date",
                         options=available_dates,
@@ -642,7 +547,7 @@ if choice == "Data Exploration":
         st.info("Data exploration is different for equities due to the large number of securities.")
 
         # Load portfolio returns
-        # portfolio_returns = load_portfolio_returns()
+        portfolio_returns = load_portfolio_returns()
         gamma_value = st.session_state.get('gamma_value', None)
         if gamma_value is None:
             st.warning("Please set your gamma in the 'Risk Profiling' section.")
@@ -655,41 +560,35 @@ if choice == "Data Exploration":
                 st.error(f"No data available for gamma value {gamma_value}")
                 st.stop()
 
-        # if selection == "North American Equities":
-        #     mean = str(round(float(returns_gamma["equity_amer"].mean() * 12 * 100), 2))
-        #     vol = str(round(float(returns_gamma["equity_amer"].std() * np.sqrt(12) * 100), 2))
-        #     nb_eq = int(list_data_equity_amer.shape[0])
-        #     list_isin = list_data_equity_amer
+        if selection == "North American Equities":
+            mean = str(round(float(returns_gamma["equity_amer"].mean() * 12 * 100), 2))
+            vol = str(round(float(returns_gamma["equity_amer"].std() * np.sqrt(12) * 100), 2))
+            nb_eq = int(list_data_equity_amer.shape[0])
+            list_isin = list_data_equity_amer
 
-        # elif selection == "North American Equities":
-        #     mean = str(round(float(returns_gamma["equity_amer"].mean() * 12 * 100), 2))
-        #     vol = str(round(float(returns_gamma["equity_amer"].std() * np.sqrt(12) * 100), 2))
-        #     nb_eq = int(list_data_equity_amer.shape[0])
-        #     list_isin = list_data_equity_amer
+        elif selection == "North American Equities":
+            mean = str(round(float(returns_gamma["equity_amer"].mean() * 12 * 100), 2))
+            vol = str(round(float(returns_gamma["equity_amer"].std() * np.sqrt(12) * 100), 2))
+            nb_eq = int(list_data_equity_amer.shape[0])
+            list_isin = list_data_equity_amer
 
-        # elif selection == "Emerging Markets Equities":
-        #     mean = str(round(float(returns_gamma["equity_em"].mean() * 12 * 100), 2))
-        #     vol = str(round(float(returns_gamma["equity_em"].std() * np.sqrt(12) * 100), 2))
-        #     nb_eq = int(list_data_equity_em.shape[0])
-        #     list_isin = list_data_equity_em
+        elif selection == "Emerging Markets Equities":
+            mean = str(round(float(returns_gamma["equity_em"].mean() * 12 * 100), 2))
+            vol = str(round(float(returns_gamma["equity_em"].std() * np.sqrt(12) * 100), 2))
+            nb_eq = int(list_data_equity_em.shape[0])
+            list_isin = list_data_equity_em
 
-        # elif selection == "European Equities":
-        #     mean = str(round(float(returns_gamma["equity_eur"].mean() * 12 * 100), 2))
-        #     vol = str(round(float(returns_gamma["equity_eur"].std() * np.sqrt(12) * 100), 2))
-        #     nb_eq = int(list_data_equity_eur.shape[0])
-        #     list_isin = list_data_equity_eur
+        elif selection == "European Equities":
+            mean = str(round(float(returns_gamma["equity_eur"].mean() * 12 * 100), 2))
+            vol = str(round(float(returns_gamma["equity_eur"].std() * np.sqrt(12) * 100), 2))
+            nb_eq = int(list_data_equity_eur.shape[0])
+            list_isin = list_data_equity_eur
 
-        # elif selection == "Asia-Pacific Equities":
-        #     mean = str(round(float(returns_gamma["equity_pac"].mean() * 12 * 100), 2))
-        #     vol = str(round(float(returns_gamma["equity_pac"].std() * np.sqrt(12) * 100), 2))
-        #     nb_eq = int(list_data_equity_pac.shape[0])
-        #     list_isin = list_data_equity_pac
-
-        mapping = portfolio_mapping[selection]
-        mean = str(round(float(portfolio_mean.loc[gamma_value, mapping]), 2))
-        vol = str(round(float(portfolio_std.loc[gamma_value, mapping]), 2))
-        list_isin = ticker_mapping[selection]
-        nb_eq = len(list_isin)
+        elif selection == "Asia-Pacific Equities":
+            mean = str(round(float(returns_gamma["equity_pac"].mean() * 12 * 100), 2))
+            vol = str(round(float(returns_gamma["equity_pac"].std() * np.sqrt(12) * 100), 2))
+            nb_eq = int(list_data_equity_pac.shape[0])
+            list_isin = list_data_equity_pac
 
         # Display expected return, volatility, and equity details
         st.subheader("Expected Annualized Return and Volatility", divider="gray")
@@ -703,8 +602,8 @@ if choice == "Data Exploration":
 
         # Efficient Frontier for equity portfolios
         st.subheader("Efficient Frontier", divider="gray")
-        # frontier_data = load_efficient_frontier_data()
-        # rf_rate_data = load_rates_data()
+        frontier_data = load_efficient_frontier_data()
+        rf_rate_data = load_rates_data()
 
         if frontier_data.empty or rf_rate_data.empty:
             st.error("Efficient frontier data or risk-free rate data is unavailable.")
@@ -716,7 +615,7 @@ if choice == "Data Exploration":
                 else:
                     # Get available dates for the selected portfolio
                     available_data = frontier_data.xs(selected_portfolio, level='portfolio')
-                    # available_dates = available_data.index.get_level_values('date').unique().sort_values()
+                    available_dates = available_data.index.get_level_values('date').unique().sort_values()
                     selected_date = st.select_slider(
                         "Select Date",
                         options=available_dates,
@@ -749,24 +648,24 @@ if choice == "Sub-Portfolio":
     selection = st.selectbox("Choose portfolio class", list_clean_name, index=0)
 
     # Mapping selection to portfolio name
-    # selection_to_portfolio_name = {
-    #     "Metals": "metals",
-    #     "Commodities": "commodities",
-    #     "Crypto": "crypto",
-    #     "Volatilities": "volatilities",
-    #     "North American Equities": "equity_amer",
-    #     "Emerging Markets Equities": "equity_em",
-    #     "European Equities": "equity_eur",
-    #     "Asia-Pacific Equities": "equity_pac",
-    #     "ERC": "erc"
-    # }
+    selection_to_portfolio_name = {
+        "Metals": "metals",
+        "Commodities": "commodities",
+        "Crypto": "crypto",
+        "Volatilities": "volatilities",
+        "North American Equities": "equity_amer",
+        "Emerging Markets Equities": "equity_em",
+        "European Equities": "equity_eur",
+        "Asia-Pacific Equities": "equity_pac",
+        "ERC": "erc"
+    }
 
     gamma_value = st.session_state.get('gamma_value', None)
     if gamma_value is None:
         st.warning("Please set your gamma in the 'Risk Profiling' section.")
         st.stop()
 
-    portfolio_name = portfolio_mapping[selection]
+    portfolio_name = selection_to_portfolio_name[selection]
 
     if portfolio_name == "crypto":
         limit = '2014-01-01'
@@ -774,28 +673,24 @@ if choice == "Sub-Portfolio":
         limit = '2006-01-01'
 
     # Define sub-portfolio list
-    # sub_portfolio_list = []
-    # if selection in ["Metals", "Commodities", "Crypto", "Volatilities"]:
-    #     sub_portfolio_list = globals()[f"list_{portfolio_name}"]
-    # elif selection in ["North American Equities", "Emerging Markets Equities",
-    #                    "European Equities", "Asia-Pacific Equities"]:
-    #     sub_portfolio_list = globals()[f"list_data_{portfolio_name}"]
-
-    sub_portfolio_list = ticker_mapping[selection]
+    sub_portfolio_list = []
+    if selection in ["Metals", "Commodities", "Crypto", "Volatilities"]:
+        sub_portfolio_list = globals()[f"list_{portfolio_name}"]
+    elif selection in ["North American Equities", "Emerging Markets Equities",
+                       "European Equities", "Asia-Pacific Equities"]:
+        sub_portfolio_list = globals()[f"list_data_{portfolio_name}"]
 
     # Load weights and returns data
     try:
-        # weights_data = load_weights_data(sub_portfolio_list, portfolio_name, gamma_value)
-        weights_data = all_weights_data.xs(key=(gamma_value, portfolio_name), level=('gamma', 'portfolio'))[sub_portfolio_list]
-        # if selection in ["Metals", "Commodities", "Crypto", "Volatilities"]:
-        #     returns_data = master_df[sub_portfolio_list].pct_change()
-        # else:
-        #     returns_data = master_data_full[sub_portfolio_list].pct_change()
-        returns_data = master_returns[sub_portfolio_list]
+        weights_data = load_weights_data(sub_portfolio_list, portfolio_name, gamma_value)
+        if selection in ["Metals", "Commodities", "Crypto", "Volatilities"]:
+            returns_data = master_df[sub_portfolio_list].pct_change()
+        else:
+            returns_data = master_data_full[sub_portfolio_list].pct_change()
 
         # Ensure proper date formatting
-        # weights_data.index = pd.to_datetime(weights_data.index.get_level_values('date'))
-        # returns_data.index = pd.to_datetime(returns_data.index)
+        weights_data.index = pd.to_datetime(weights_data.index.get_level_values('date'))
+        returns_data.index = pd.to_datetime(returns_data.index)
 
         # Filter data starting from 1 January 2006
         weights_data = weights_data[weights_data.index >= pd.Timestamp(limit)]
@@ -830,10 +725,10 @@ if choice == "Sub-Portfolio":
             #print(current_weights)
 
         # Adjust weights dynamically based on the previous weights and returns
-        # aligned_weights = current_weights.reindex(returns_data.columns).fillna(0)
-        # aligned_returns = returns_data.loc[date].reindex(aligned_weights.index).fillna(0)
+        aligned_weights = current_weights.reindex(returns_data.columns).fillna(0)
+        aligned_returns = returns_data.loc[date].reindex(aligned_weights.index).fillna(0)
 
-        # current_weights = current_weights.clip(lower=0)
+        current_weights = current_weights.clip(lower=0)
         # Calculate portfolio value
         portfolio_value = (current_weights * (1 + returns_data.loc[date].fillna(0))).sum()
 
@@ -842,9 +737,9 @@ if choice == "Sub-Portfolio":
 
 
         # Ensure weights are normalized to sum to 1
-        # if current_weights.sum() > 1.0:
+        if current_weights.sum() > 1.0:
 
-        #     current_weights = current_weights / current_weights.sum()
+            current_weights = current_weights / current_weights.sum()
 
 
         # Store the updated weights
@@ -914,18 +809,15 @@ if choice == "Final Portfolio":
 
     # Define sub-portfolio list for ERC
     sub_portfolio_list = erc_portfolio_columns
-    # sub_portfolio_list = ticker_mapping['ERC']
 
     # Load weights and returns data
     try:
-        # weights_data = load_weights_data(sub_portfolio_list, "erc", gamma_value)
-        # returns_data = load_portfolio_returns().xs(gamma_value, level='gamma')
-        weights_data = all_weights_data.xs(key=(gamma_value, "erc"), level=('gamma', 'portfolio'))[sub_portfolio_list]
-        returns_data = portfolio_returns.xs(gamma_value, level='gamma')[sub_portfolio_list]
+        weights_data = load_weights_data(sub_portfolio_list, "erc", gamma_value)
+        returns_data = load_portfolio_returns().xs(gamma_value, level='gamma')
 
         # Ensure proper date formatting
-        # weights_data.index = pd.to_datetime(weights_data.index.get_level_values('date'))
-        # returns_data.index = pd.to_datetime(returns_data.index)
+        weights_data.index = pd.to_datetime(weights_data.index.get_level_values('date'))
+        returns_data.index = pd.to_datetime(returns_data.index)
 
         # Filter data starting from 1 January 2006
         weights_data = weights_data[weights_data.index >= pd.Timestamp('2006-01-01')]
@@ -973,14 +865,14 @@ if choice == "Final Portfolio":
         current_weights = (current_weights * (1 + returns_data.loc[date].fillna(0))) / portfolio_value
 
         # Ensure all weights are non-negative
-        # current_weights = current_weights.clip(lower=0)
+        current_weights = current_weights.clip(lower=0)
 
         # Re-normalize weights to sum to 1
-        # if current_weights.sum() > 0:
-        #     current_weights = current_weights / current_weights.sum()
-        # else:
-        #     # If all weights are zero, reset to equal weights
-        #     current_weights = pd.Series(1 / len(sub_portfolio_list), index=sub_portfolio_list)
+        if current_weights.sum() > 0:
+            current_weights = current_weights / current_weights.sum()
+        else:
+            # If all weights are zero, reset to equal weights
+            current_weights = pd.Series(1 / len(sub_portfolio_list), index=sub_portfolio_list)
 
         # Store the updated weights
         dynamic_weights.loc[date] = current_weights
@@ -1074,17 +966,16 @@ if choice == "Performance":
             "Gamma Value",
             min_value=0.0,
             max_value=2.0,
-            step=0.01,
+            step=0.1,
             value=session_gamma,
             help="Adjust the risk preference using the gamma slider."
         )
 
         # Save the gamma value in session state
-        gamma_value = get_nearest_gamma(gamma_value)
         st.session_state["gamma_value"] = gamma_value
 
         # Load portfolio returns
-        # portfolio_returns = load_portfolio_returns()
+        portfolio_returns = load_portfolio_returns()
 
         # Get returns for the selected gamma
         try:
