@@ -1106,7 +1106,7 @@ if choice == "Performance":
                 "Mean Return": True,
                 "Volatility": False,
                 "Sharpe Ratio": True,
-                "Max Drawdown": False,
+                "Max Drawdown": True,
                 "Max Drawdown<br>Duration (days)": False,
                 "Average Drawdown<br>Duration (days)": False,
             }
