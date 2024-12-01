@@ -985,7 +985,7 @@ if choice == "Performance":
 
     if selected_portfolios:
         # Gamma slider
-        session_gamma = st.session_state.get('gamma_value', 0.5)  # Default gamma if not set
+        session_gamma = st.session_state.get('gamma_value')  # Default gamma if not set
         gamma_value = st.slider(
             "Gamma Value",
             min_value=0.0,
