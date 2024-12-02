@@ -93,8 +93,8 @@ def load_correlation_and_returns(master_df):
     """Compute correlation matrix and returns."""
     corr_matrix = optimize_floats(master_df.corr())
     master_returns = master_df.pct_change(fill_method=None).replace([np.inf, -np.inf, np.nan], 0)
-    master_mean = optimize_floats(master_returns.mean() * 252)
-    master_std = optimize_floats(master_returns.std() * np.sqrt(252))
+    master_mean = optimize_floats(master_returns.mean() * 12)
+    master_std = optimize_floats(master_returns.std() * np.sqrt(12))
     master_returns = optimize_floats(master_returns)
     return corr_matrix, master_returns, master_mean, master_std
 
