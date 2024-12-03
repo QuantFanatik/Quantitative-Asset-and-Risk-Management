@@ -737,8 +737,8 @@ if choice == "Final Portfolio":
         returns_data = portfolio_returns.xs(gamma_value, level='gamma')[sub_portfolio_list]
         del portfolio_returns
 
-        weights_data = weights_data[weights_data.index >= pd.Timestamp('2006-01-01')]
-        returns_data = returns_data[returns_data.index >= pd.Timestamp('2006-01-01')]
+        weights_data = weights_data[weights_data.index >= pd.Timestamp('2007-01-01')]
+        returns_data = returns_data[returns_data.index >= pd.Timestamp('2007-01-01')]
 
     except Exception as e:
         st.error(f"Error loading data: {e}")
@@ -787,7 +787,7 @@ if choice == "Final Portfolio":
     dynamic_weights.ffill(inplace=True)
 
     # Use select_slider for available dates
-    available_dates = dynamic_weights.index[dynamic_weights.index >= pd.Timestamp('2006-01-01')].to_pydatetime()
+    available_dates = dynamic_weights.index[dynamic_weights.index >= pd.Timestamp('2007-01-01')].to_pydatetime()
     if not available_dates.size:
         st.error("No data available from January 2006 onwards.")
         st.stop()
